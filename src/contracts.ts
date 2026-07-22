@@ -10,7 +10,7 @@ export interface CaptureProfile {
   device?: string;
 }
 
-export type JobStatus = 'created' | 'capturing' | 'captured' | 'validated' | 'failed';
+export type JobStatus = 'created' | 'capturing' | 'captured' | 'mirroring' | 'mirrored' | 'validated' | 'failed';
 
 export interface CaptureConsent {
   origin: string;

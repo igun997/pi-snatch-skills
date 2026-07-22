@@ -192,10 +192,10 @@ test('loads persisted job only from a safe artifact path', async () => {
 test('persists job status without changing recorded consent', async () => {
   await withTestDir(async (root) => {
     await createJob({ root, id: 'status-job', url: 'https://example.com/page', permissionMode: 'owned-or-authorized' });
-    const updated = await updateJobStatus(root, 'status-job', 'captured');
-    assert.equal(updated.status, 'captured');
+    const updated = await updateJobStatus(root, 'status-job', 'mirroring');
+    assert.equal(updated.status, 'mirroring');
     assert.equal(updated.consent.origin, 'https://example.com');
-    assert.equal((await loadJob(root, 'status-job')).status, 'captured');
+    assert.equal((await loadJob(root, 'status-job')).status, 'mirroring');
   });
 });
 

@@ -190,7 +190,7 @@ export async function loadJob(root: string, id: string): Promise<SnatchJob> {
     !job.consent ||
     typeof job.consent.origin !== 'string' ||
     (job.consent.permissionMode !== 'owned-or-authorized' && job.consent.permissionMode !== 'private-learning') ||
-    !['created', 'capturing', 'captured', 'validated', 'failed'].includes(job.status ?? '')
+    !['created', 'capturing', 'captured', 'mirroring', 'mirrored', 'validated', 'failed'].includes(job.status ?? '')
   ) {
     throw new Error('Stored job metadata is invalid.');
   }
