@@ -189,6 +189,13 @@ export class AgentBrowserClient {
     await this.run(['wait', '--load', 'networkidle']);
   }
 
+  async wait(ms: number): Promise<void> { await this.run(['wait', String(ms)]); }
+  async scroll(delta: number): Promise<void> { await this.run(['scroll', 'down', String(delta)]); }
+  async scrollToTop(): Promise<void> { await this.run(['press', 'Home']); }
+  async documentHeight(): Promise<number> {
+    return this.evalJson<number>('JSON.stringify(document.documentElement.scrollHeight)');
+  }
+
   async screenshot(path: string, fullPage = false): Promise<void> {
     await this.run(['screenshot', ...(fullPage ? ['--full'] : []), path]);
   }

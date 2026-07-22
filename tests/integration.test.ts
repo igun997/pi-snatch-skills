@@ -19,6 +19,7 @@ function captureBrowser(): CaptureBrowser {
   return {
     open: async (url) => url,
     setDevice: async () => {}, setViewport: async () => {}, reload: async () => {}, waitForIdle: async () => {},
+    wait: async () => {}, scroll: async () => {}, scrollToTop: async () => {}, documentHeight: async () => 1,
     screenshot: async (path) => { await writeFile(path, screenshot(0)); },
     snapshot: async () => 'safe snapshot',
     evalJson: async <T>() => ({ regions: [{ tag: 'main', role: null, styles: { color: 'rgb(0, 0, 0)' } }], animations: [] }) as T,

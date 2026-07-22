@@ -12,6 +12,10 @@ export interface CaptureBrowser {
   setViewport(width: number, height: number, scale?: number): Promise<void>;
   reload(): Promise<void>;
   waitForIdle(): Promise<void>;
+  wait(ms: number): Promise<void>;
+  scroll(delta: number): Promise<void>;
+  scrollToTop(): Promise<void>;
+  documentHeight(): Promise<number>;
   screenshot(path: string, fullPage?: boolean): Promise<void>;
   snapshot(interactive?: boolean): Promise<string>;
   evalJson<T>(script: string): Promise<T>;
@@ -26,6 +30,20 @@ export interface CaptureOptions {
   targetUrl: string;
   artifactDirectory: string;
   createBrowser: (profile: CaptureProfile) => CaptureBrowser;
+}
+
+export async function settleAndScroll(browser: Pick<CaptureBrowser, 'wait' | 'scroll' | 'scrollToTop' | 'documentHeight'>): Promise<void> {
+  await browser.wait(8000);
+  let height = await browser.documentHeight();
+  for (let step = 0; step < 60; step += 1) {
+    await browser.scroll(700);
+    await browser.wait(500);
+    const next = await browser.documentHeight();
+    if (next <= height) break;
+    height = next;
+  }
+  await browser.scrollToTop();
+  await browser.wait(1000);
 }
 
 export const DEFAULT_CAPTURE_PROFILES: CaptureProfile[] = [
@@ -73,6 +91,7 @@ async function captureProfile(
     await browser.setViewport(profile.width ?? 1440, profile.height ?? 900, profile.deviceScaleFactor);
     await browser.reload();
     await browser.waitForIdle();
+    await settleAndScroll(browser);
 
     const pagePath = join(profileDirectory, 'page.png');
     const fullPagePath = join(profileDirectory, 'full-page.png');

@@ -3,7 +3,7 @@ import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { captureJob, type CaptureBrowser } from '../src/capture.js';
+import { captureJob, settleAndScroll, type CaptureBrowser } from '../src/capture.js';
 import { createJob } from '../src/jobs.js';
 import { withTestDir } from './helpers/test-dir.js';
 
@@ -26,6 +26,10 @@ class FakeBrowser implements CaptureBrowser {
   }
   async reload(): Promise<void> { this.calls.push('reload'); }
   async waitForIdle(): Promise<void> { this.calls.push('wait'); }
+  async wait(ms: number): Promise<void> { this.calls.push(`delay:${ms}`); }
+  async scroll(delta: number): Promise<void> { this.calls.push(`scroll:${delta}`); }
+  async scrollToTop(): Promise<void> { this.calls.push('top'); }
+  async documentHeight(): Promise<number> { this.calls.push('height'); return 900; }
   async screenshot(path: string, fullPage?: boolean): Promise<void> {
     this.calls.push(`screenshot:${fullPage ? 'full' : 'viewport'}`);
     await writeFile(path, fullPage ? 'full' : 'viewport', 'utf8');
@@ -44,6 +48,12 @@ class FakeBrowser implements CaptureBrowser {
   async networkRequests(): Promise<string> { this.calls.push('network'); return '[]'; }
   async close(): Promise<void> { this.calls.push('close'); this.closed = true; }
 }
+
+test('settles and scrolls lazy content before capture', async () => {
+  const browser = new FakeBrowser();
+  await settleAndScroll(browser);
+  assert.deepEqual(browser.calls, ['delay:8000', 'height', 'scroll:700', 'delay:500', 'height', 'top', 'delay:1000']);
+});
 
 test('captures desktop and mobile evidence without source code or assets', async () => {
   await withTestDir(async (root) => {
