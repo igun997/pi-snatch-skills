@@ -29,13 +29,40 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
       const selected = await ctx.ui.select('Permission mode:', [...permissionModes]);
       if (!selected) return;
       const mode = selected as (typeof permissionModes)[number];
-      const confirmed = await ctx.ui.confirm('Confirm authorized capture', `${url}\nMode: ${mode}`);
+      const actions = mode === 'owned-or-authorized' ? ['capture-design', 'full-clone'] : ['capture-design'];
+      const action = await ctx.ui.select('Action after consent:', actions);
+      if (!action) return;
+      const confirmed = await ctx.ui.confirm('Confirm authorized operation', `${url}\nMode: ${mode}\nAction: ${action}`);
       if (!confirmed) return;
       const job = await (async () => {
         const { createJob } = await import('../src/jobs.js');
         return createJob({ root: ctx.cwd, id: `snatch-${randomUUID()}`, url, permissionMode: mode });
       })();
-      ctx.ui.notify(`Consent recorded: .pi/snatch/${job.id}/job.json`, 'info');
+      const artifactDirectory = join(ctx.cwd, '.pi', 'snatch', job.id);
+      try {
+        if (action === 'full-clone') {
+          await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+          const result = await cloneAuthorizedSite({ root: ctx.cwd, artifactDirectory, job, targetUrl: url });
+          await updateJobStatus(ctx.cwd, job.id, 'mirrored');
+          ctx.ui.notify(`Full clone complete: ${result.outputDirectory}/mirror-manifest.json`, 'info');
+          return;
+        }
+        await captureJob({
+          job,
+          targetUrl: url,
+          artifactDirectory,
+          createBrowser: (profile) => new AgentBrowserClient({
+            jobId: `${job.id}-${profile.name}`,
+            artifactDirectory: join(artifactDirectory, profile.name, 'diagnostics'),
+          }),
+        });
+        await analyzeCapturedJob({ job, artifactDirectory, projectDirectory: ctx.cwd });
+        await updateJobStatus(ctx.cwd, job.id, 'captured');
+        ctx.ui.notify(`Capture complete. Brief: .pi/snatch/${job.id}/output/brief.json`, 'info');
+      } catch (error) {
+        await updateJobStatus(ctx.cwd, job.id, 'failed');
+        ctx.ui.notify((error as Error).message, 'error');
+      }
     },
   });
 

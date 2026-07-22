@@ -45,11 +45,11 @@ npm run typecheck
 ## Workflow
 
 1. In Pi TUI, run `/snatch <public-url>`.
-2. Choose `owned-or-authorized`, then confirm consent. Pi records a job under `.pi/snatch/<job-id>/job.json`.
-3. Run `/snatch-status <job-id>` to inspect job state.
-4. Ask Pi to capture job `<job-id>`. `snatch_capture` records desktop/mobile evidence and writes `.pi/snatch/<job-id>/output/brief.json`.
-5. Use screenshots and brief to create new components. Never copy target source code, assets, fonts, SVG markup, or page copy.
-6. Serve rebuilt output locally, then validate only a loopback URL:
+2. Choose permission mode, then choose action: `capture-design` or, for `owned-or-authorized`, `full-clone`.
+3. Confirm. Pi records a job under `.pi/snatch/<job-id>/job.json`, then runs selected action immediately.
+4. Run `/snatch-status <job-id>` to inspect job state.
+5. Capture writes desktop/mobile evidence and `.pi/snatch/<job-id>/output/brief.json`. Use screenshots and brief to create new components. Never copy target source code, assets, fonts, SVG markup, or page copy.
+6. Serve rebuilt capture output locally, then validate only a loopback URL:
 
 ```sh
 node --import tsx scripts/e2e.mjs \
