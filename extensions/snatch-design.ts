@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
+import { Box, Text } from '@earendil-works/pi-tui';
 
 import { AgentBrowserClient } from '../src/agent-browser.js';
 import { analyzeCapturedJob } from '../src/analyze.js';
@@ -16,6 +17,13 @@ const permissionModes = ['owned-or-authorized', 'private-learning'] as const;
 const stateDetails = (jobId: string, origin: string, attempts: number, status: string) => ({ jobId, origin, attempts, status });
 
 export default function snatchDesignExtension(pi: ExtensionAPI) {
+  pi.registerEntryRenderer<{ stage: string; message: string }>('snatch-progress', (entry, _options, theme) => {
+    const data = entry.data ?? { stage: 'working', message: 'Working…' };
+    const box = new Box(1, 1, (text) => theme.bg('customMessageBg', text));
+    box.addChild(new Text(`${theme.fg('accent', '●')} ${theme.bold(data.stage)}  ${data.message}`));
+    return box;
+  });
+
   pi.registerCommand('snatch', {
     description: 'Create an origin-scoped, consented public design-capture job.',
     handler: async (args, ctx) => {
@@ -39,6 +47,7 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
         return createJob({ root: ctx.cwd, id: `snatch-${randomUUID()}`, url, permissionMode: mode });
       })();
       const artifactDirectory = join(ctx.cwd, '.pi', 'snatch', job.id);
+      pi.appendEntry('snatch-progress', { stage: 'Consent recorded', message: `.pi/snatch/${job.id}/job.json` });
       try {
         if (action === 'full-clone') {
           await updateJobStatus(ctx.cwd, job.id, 'mirroring');
@@ -47,6 +56,7 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`Full clone complete: ${result.outputDirectory}/mirror-manifest.json`, 'info');
           return;
         }
+        pi.appendEntry('snatch-progress', { stage: 'Capturing', message: 'Collecting desktop and mobile evidence' });
         await captureJob({
           job,
           targetUrl: url,
@@ -58,7 +68,11 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
         });
         await analyzeCapturedJob({ job, artifactDirectory, projectDirectory: ctx.cwd });
         await updateJobStatus(ctx.cwd, job.id, 'captured');
-        ctx.ui.notify(`Capture complete. Brief: .pi/snatch/${job.id}/output/brief.json`, 'info');
+        const briefPath = `.pi/snatch/${job.id}/output/brief.json`;
+        pi.appendEntry('snatch-progress', { stage: 'Brief ready', message: briefPath });
+        pi.appendEntry('snatch-progress', { stage: 'LLM continuation', message: 'Queued fresh rebuild workflow' });
+        ctx.ui.notify(`Capture complete. Brief: ${briefPath}`, 'info');
+        pi.sendUserMessage(`Capture complete. Read ${briefPath}. Inspect project, then proactively build a fresh reusable rebuild from design evidence. Never copy source code or assets. Report files changed and validation results.`);
       } catch (error) {
         await updateJobStatus(ctx.cwd, job.id, 'failed');
         ctx.ui.notify((error as Error).message, 'error');

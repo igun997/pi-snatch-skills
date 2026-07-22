@@ -8,9 +8,11 @@ import { withTestDir } from './helpers/test-dir.js';
 test('registers consent command, status command, capture, validation, and full-clone tools', () => {
   const commands: string[] = [];
   const tools: string[] = [];
+  const renderers: string[] = [];
   const api = {
     registerCommand: (name: string) => { commands.push(name); },
     registerTool: (definition: { name: string }) => { tools.push(definition.name); },
+    registerEntryRenderer: (name: string) => { renderers.push(name); },
     on: () => {},
   } as unknown as ExtensionAPI;
 
@@ -18,6 +20,7 @@ test('registers consent command, status command, capture, validation, and full-c
 
   assert.deepEqual(commands, ['snatch', 'snatch-status', 'snatch-full-clone']);
   assert.deepEqual(tools, ['snatch_status', 'snatch_capture', 'snatch_full_clone', 'snatch_validate']);
+  assert.deepEqual(renderers, ['snatch-progress']);
 });
 
 test('/snatch asks what to do after recording consent', async () => {
@@ -25,7 +28,7 @@ test('/snatch asks what to do after recording consent', async () => {
     const handlers = new Map<string, (args: string, ctx: any) => Promise<void>>();
     const api = {
       registerCommand: (name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) => handlers.set(name, definition.handler),
-      registerTool: () => {}, on: () => {},
+      registerTool: () => {}, registerEntryRenderer: () => {}, on: () => {},
     } as unknown as ExtensionAPI;
     snatchDesignExtension(api);
     const prompts: string[] = [];
