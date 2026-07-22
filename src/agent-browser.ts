@@ -57,7 +57,11 @@ export interface AgentBrowserClientOptions {
 }
 
 function redact(value: string): string {
-  return SECRET_PATTERNS.reduce((result, pattern) => result.replace(pattern, '$1[REDACTED]'), value);
+  const credentialRedacted = SECRET_PATTERNS.reduce(
+    (result, pattern) => result.replace(pattern, '$1[REDACTED]'),
+    value,
+  );
+  return credentialRedacted.replace(/([?&][^=&\s]+)=([^&#\s]+)/g, '$1=[REDACTED]');
 }
 
 function compact(value: string): string {
@@ -146,6 +150,10 @@ export class AgentBrowserClient {
     }
   }
 
+  async setDevice(name: string): Promise<void> {
+    await this.run(['set', 'device', name]);
+  }
+
   async setViewport(width: number, height: number, deviceScaleFactor?: number): Promise<void> {
     const args = ['set', 'viewport', String(width), String(height)];
     if (deviceScaleFactor) args.push(String(deviceScaleFactor));
@@ -154,6 +162,10 @@ export class AgentBrowserClient {
 
   async setReducedMotion(): Promise<void> {
     await this.run(['set', 'media', 'light', 'reduced-motion']);
+  }
+
+  async reload(): Promise<void> {
+    await this.run(['reload']);
   }
 
   async waitForIdle(): Promise<void> {
@@ -219,7 +231,7 @@ export class AgentBrowserClient {
       timeoutMs: this.timeoutMs,
     };
     const result = await this.runner(call);
-    const command = args.join(' ');
+    const command = redact(args.join(' '));
     const diagnosticPath = await this.writeDiagnostic(command, result);
     if (result.exitCode !== 0) {
       throw new AgentBrowserCommandError(command, result.exitCode, diagnosticPath);

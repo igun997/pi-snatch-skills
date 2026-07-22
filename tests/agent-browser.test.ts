@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
+
+import { withTestDir } from './helpers/test-dir.js';
 
 import {
   AgentBrowserClient,
@@ -129,6 +133,35 @@ test('forwards supplied abort signals to agent-browser commands', async () => {
   await client.loadCoreGuide();
 
   assert.equal(calls[0]?.signal, controller.signal);
+});
+
+test('redacts query values from browser output, diagnostic files, and errors', async () => {
+  await withTestDir(async (root) => {
+    const runner: CommandRunner = async (call) => ({
+      exitCode: call.args.includes('open') ? 1 : 0,
+      stdout: 'GET https://example.com/page?session=super-secret',
+      stderr: '',
+    });
+    const client = new AgentBrowserClient({
+      jobId: 'job',
+      runner,
+      artifactDirectory: root,
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    });
+
+    await assert.rejects(
+      client.open('https://example.com/page?temporary=super-secret'),
+      (error: unknown) => {
+        assert.doesNotMatch((error as Error).message, /super-secret/);
+        return true;
+      },
+    );
+    const [diagnostic] = await readdir(root);
+    assert.ok(diagnostic);
+    const diagnostics = await readFile(join(root, diagnostic), 'utf8');
+    assert.doesNotMatch(diagnostic, /super-secret/);
+    assert.doesNotMatch(diagnostics, /super-secret/);
+  });
 });
 
 test('redacts credential-like output from command errors', async () => {

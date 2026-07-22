@@ -4,6 +4,10 @@ export type PermissionMode = 'owned-or-authorized' | 'private-learning';
 /** A named, future-extensible capture configuration. */
 export interface CaptureProfile {
   name: string;
+  width?: number;
+  height?: number;
+  deviceScaleFactor?: number;
+  device?: string;
 }
 
 export type JobStatus = 'created' | 'capturing' | 'captured' | 'validated' | 'failed';
@@ -32,6 +36,7 @@ export interface CaptureArtifact {
 export interface CaptureManifest {
   jobId: string;
   createdAt: string;
+  profiles: CaptureProfile[];
   artifacts: CaptureArtifact[];
 }
 
