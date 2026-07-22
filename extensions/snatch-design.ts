@@ -9,7 +9,7 @@ import { Box, Text } from '@earendil-works/pi-tui';
 import { AgentBrowserClient } from '../src/agent-browser.js';
 import { analyzeCapturedJob } from '../src/analyze.js';
 import { captureJob } from '../src/capture.js';
-import { cloneAuthorizedSite } from '../src/full-clone.js';
+import { cloneAuthorizedSite, type MirrorProgress } from '../src/full-clone.js';
 import { loadJob, normalizePublicUrl, canCapture, updateJobStatus } from '../src/jobs.js';
 import { nextRepairAttempt, validateJob } from '../src/validate.js';
 
@@ -24,6 +24,13 @@ export function buildRebuildContinuation(briefPath: string, action = 'capture-de
 }
 
 const stateDetails = (jobId: string, origin: string, attempts: number, status: string) => ({ jobId, origin, attempts, status });
+
+function mirrorProgressMessage(progress: MirrorProgress): string {
+  const details = [progress.message, `${progress.visited} visited`, `${progress.queued} queued`];
+  if (progress.status !== undefined) details.push(`HTTP ${progress.status}`);
+  if (progress.bytes !== undefined) details.push(`${progress.bytes} bytes`);
+  return details.join(' · ');
+}
 
 export default function snatchDesignExtension(pi: ExtensionAPI) {
   pi.registerEntryRenderer<{ stage: string; message: string }>('snatch-progress', (entry, _options, theme) => {
@@ -61,10 +68,32 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
       pi.appendEntry('snatch-progress', { stage: 'Consent recorded', message: `.pi/snatch/${job.id}/job.json` });
       try {
         if (action === 'full-clone') {
-          await updateJobStatus(ctx.cwd, job.id, 'mirroring');
-          const result = await cloneAuthorizedSite({ root: ctx.cwd, artifactDirectory, job, targetUrl: url });
-          await updateJobStatus(ctx.cwd, job.id, 'mirrored');
-          ctx.ui.notify(`Full clone complete: ${result.outputDirectory}/mirror-manifest.json`, 'info');
+          const statusId = `snatch-full-clone:${job.id}`;
+          pi.appendEntry('snatch-progress', { stage: 'Mirroring', message: 'Fetching authorized same-origin source files' });
+          ctx.ui.setStatus(statusId, 'Mirroring authorized source files…');
+          try {
+            await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+            const result = await cloneAuthorizedSite({
+              root: ctx.cwd,
+              artifactDirectory,
+              job,
+              targetUrl: url,
+              onProgress: (progress) => {
+                const message = mirrorProgressMessage(progress);
+                pi.appendEntry('snatch-progress', { stage: progress.stage, message });
+                ctx.ui.setStatus(statusId, `${progress.stage} · ${message}`);
+              },
+            });
+            await updateJobStatus(ctx.cwd, job.id, 'mirrored');
+            const manifestPath = `${result.outputDirectory}/mirror-manifest.json`;
+            pi.appendEntry('snatch-progress', { stage: 'Clone ready', message: manifestPath });
+            ctx.ui.notify(`Full clone complete: ${manifestPath}`, 'info');
+          } catch (error) {
+            pi.appendEntry('snatch-progress', { stage: 'Clone failed', message: (error as Error).message });
+            throw error;
+          } finally {
+            ctx.ui.setStatus(statusId, undefined);
+          }
           return;
         }
         pi.appendEntry('snatch-progress', { stage: 'Capturing', message: 'Collecting desktop and mobile evidence' });
@@ -112,16 +141,34 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
         if (!ctx.hasUI) throw new Error('Interactive confirmation required. Run in TUI or RPC mode.');
         const confirmed = await ctx.ui.confirm('Confirm authorized full clone', `${job.rootUrl}\nCopies same-origin source files.`);
         if (!confirmed) return;
-        await updateJobStatus(ctx.cwd, job.id, 'mirroring');
-        const result = await cloneAuthorizedSite({
-          root: ctx.cwd,
-          artifactDirectory: join(ctx.cwd, '.pi', 'snatch', job.id),
-          job,
-          targetUrl: job.rootUrl,
-          outputDirectory,
-        });
-        await updateJobStatus(ctx.cwd, job.id, 'mirrored');
-        ctx.ui.notify(`Full clone complete: ${result.outputDirectory}/mirror-manifest.json`, 'info');
+        const statusId = `snatch-full-clone:${job.id}`;
+        pi.appendEntry('snatch-progress', { stage: 'Mirroring', message: 'Fetching authorized same-origin source files' });
+        ctx.ui.setStatus(statusId, 'Mirroring authorized source files…');
+        try {
+          await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+          const result = await cloneAuthorizedSite({
+            root: ctx.cwd,
+            artifactDirectory: join(ctx.cwd, '.pi', 'snatch', job.id),
+            job,
+            targetUrl: job.rootUrl,
+            outputDirectory,
+            onProgress: (progress) => {
+              const message = mirrorProgressMessage(progress);
+              pi.appendEntry('snatch-progress', { stage: progress.stage, message });
+              ctx.ui.setStatus(statusId, `${progress.stage} · ${message}`);
+            },
+          });
+          await updateJobStatus(ctx.cwd, job.id, 'mirrored');
+          const manifestPath = `${result.outputDirectory}/mirror-manifest.json`;
+          pi.appendEntry('snatch-progress', { stage: 'Clone ready', message: manifestPath });
+          ctx.ui.notify(`Full clone complete: ${manifestPath}`, 'info');
+        } catch (error) {
+          await updateJobStatus(ctx.cwd, job.id, 'failed');
+          pi.appendEntry('snatch-progress', { stage: 'Clone failed', message: (error as Error).message });
+          throw error;
+        } finally {
+          ctx.ui.setStatus(statusId, undefined);
+        }
       } catch (error) { ctx.ui.notify((error as Error).message, 'error'); }
     },
   });
@@ -186,12 +233,16 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
       targetUrl: Type.Optional(Type.String()),
       outputDirectory: Type.Optional(Type.String()),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
+    async execute(_id, params, signal, onUpdate, ctx) {
       const job = await loadJob(ctx.cwd, params.jobId);
       if (job.consent.permissionMode !== 'owned-or-authorized') throw new Error('Full clone requires owned-or-authorized consent.');
       const targetUrl = params.targetUrl ?? job.rootUrl;
       if (!canCapture(job, targetUrl)) throw new Error('Full clone target is outside recorded consent origin.');
       await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+      onUpdate?.({
+        content: [{ type: 'text', text: 'Mirroring authorized same-origin source files…' }],
+        details: stateDetails(job.id, job.consent.origin, 0, 'mirroring'),
+      });
       try {
         const result = await cloneAuthorizedSite({
           root: ctx.cwd,
@@ -199,6 +250,15 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
           job,
           targetUrl,
           outputDirectory: params.outputDirectory,
+          signal,
+          onProgress: (progress) => {
+            const message = mirrorProgressMessage(progress);
+            pi.appendEntry('snatch-progress', { stage: progress.stage, message });
+            onUpdate?.({
+              content: [{ type: 'text', text: `${progress.stage} · ${message}` }],
+              details: stateDetails(job.id, job.consent.origin, 0, 'mirroring'),
+            });
+          },
         });
         await updateJobStatus(ctx.cwd, job.id, 'mirrored');
         return {

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { access, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
@@ -73,5 +75,63 @@ test('/snatch asks what to do after recording consent', async () => {
     });
     assert.deepEqual(prompts, ['Permission mode:', 'Action after consent:']);
     assert.deepEqual(choices[1], ['capture-design', 'create-reusable-components', 'full-clone']);
+  });
+});
+
+test('/snatch keeps selected full-clone progress visible until mirror completes', async () => {
+  await withTestDir(async (cwd) => {
+    const handlers = new Map<string, (args: string, ctx: any) => Promise<void>>();
+    const entries: Array<{ stage: string; message: string }> = [];
+    const statuses: Array<string | undefined> = [];
+    const notifications: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('<!doctype html><html></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    });
+    const api = {
+      registerCommand: (name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) => handlers.set(name, definition.handler),
+      registerTool: () => {},
+      registerEntryRenderer: () => {},
+      appendEntry: (_type: string, data: { stage: string; message: string }) => { entries.push(data); },
+      on: () => {},
+    } as unknown as ExtensionAPI;
+
+    try {
+      snatchDesignExtension(api);
+      let selection = 0;
+      await handlers.get('snatch')?.('https://example.com', {
+        cwd,
+        hasUI: true,
+        ui: {
+          select: async () => ['owned-or-authorized', 'full-clone'][selection++],
+          confirm: async () => true,
+          notify: (message: string) => { notifications.push(message); },
+          setStatus: (_id: string, message: string | undefined) => { statuses.push(message); },
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(entries.map((entry) => entry.stage), [
+      'Consent recorded',
+      'Mirroring',
+      'Fetching',
+      'Fetched',
+      'Writing',
+      'Written',
+      'Manifest ready',
+      'Clone ready',
+    ]);
+    assert.match(statuses[0] ?? '', /Mirroring/);
+    assert.equal(statuses.at(-1), undefined);
+    assert.match(notifications.at(-1) ?? '', /Full clone complete/);
+
+    const relativeJobPath = entries[0]!.message;
+    const jobDirectory = join(cwd, relativeJobPath, '..');
+    const job = JSON.parse(await readFile(join(cwd, relativeJobPath), 'utf8')) as { status: string };
+    assert.equal(job.status, 'mirrored');
+    await access(join(jobDirectory, 'mirror', 'mirror-manifest.json'));
   });
 });

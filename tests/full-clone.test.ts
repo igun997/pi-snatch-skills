@@ -43,11 +43,64 @@ test('mirrors authorized same-origin assets and rewrites local references', asyn
   });
 });
 
+test('streams every mirror fetch and write activity in order', async () => {
+  const source = new Map([
+    [`${origin}/`, '<link href="/style.css">'],
+    [`${origin}/style.css`, 'body { color: black; }'],
+  ]);
+  await withTestDir(async (root) => {
+    const progress: Array<{ stage: string; message: string }> = [];
+    await cloneAuthorizedSite({
+      root,
+      artifactDirectory: join(root, '.pi', 'snatch', 'job'),
+      job: { consent: { origin, permissionMode: 'owned-or-authorized' } },
+      targetUrl: `${origin}/`,
+      fetcher: async (url) => ({ ok: source.has(url), status: source.has(url) ? 200 : 404, body: source.get(url) ?? '' }),
+      onProgress: (event) => { progress.push(event); },
+    });
+
+    assert.deepEqual(progress.map((event) => event.stage), [
+      'Fetching', 'Fetched',
+      'Fetching', 'Fetched',
+      'Writing', 'Written',
+      'Writing', 'Written',
+      'Manifest ready',
+    ]);
+    assert.equal(progress[0]?.message, '/');
+    assert.equal(progress.at(-1)?.message, 'mirror-manifest.json');
+  });
+});
+
 test('rejects learning jobs, cross-origin targets, and output paths outside project', async () => {
   await withTestDir(async (root) => {
     const options = { root, artifactDirectory: join(root, '.pi', 'snatch', 'job'), targetUrl: `${origin}/`, fetcher: async () => ({ ok: true, status: 200, body: '' }) };
     await assert.rejects(cloneAuthorizedSite({ ...options, job: { consent: { origin, permissionMode: 'private-learning' } } }), /owned-or-authorized/i);
     await assert.rejects(cloneAuthorizedSite({ ...options, job: { consent: { origin, permissionMode: 'owned-or-authorized' } }, targetUrl: 'https://outside.test/' }), /consent origin/i);
     await assert.rejects(cloneAuthorizedSite({ ...options, job: { consent: { origin, permissionMode: 'owned-or-authorized' } }, outputDirectory: '../outside' }), /project root/i);
+  });
+});
+
+test('times out a stalled mirror request instead of hanging forever', async () => {
+  await withTestDir(async (root) => {
+    let watchdog: NodeJS.Timeout | undefined;
+    const clone = cloneAuthorizedSite({
+      root,
+      artifactDirectory: join(root, '.pi', 'snatch', 'job'),
+      job: { consent: { origin, permissionMode: 'owned-or-authorized' } },
+      targetUrl: `${origin}/`,
+      requestTimeoutMs: 10,
+      fetcher: async (_url, signal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+    });
+    const stalled = new Promise<never>((_resolve, reject) => {
+      watchdog = setTimeout(() => reject(new Error('Full clone remained stalled.')), 200);
+    });
+
+    try {
+      await assert.rejects(Promise.race([clone, stalled]), /timed out after 10ms/i);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+    }
   });
 });
