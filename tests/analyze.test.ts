@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { analyzeDesignFacts, detectFramework, writeDesignBrief } from '../src/analyze.js';
+import { analyzeCapturedJob, analyzeDesignFacts, detectFramework, writeDesignBrief } from '../src/analyze.js';
 import { withTestDir } from './helpers/test-dir.js';
 
 test('detects supported frameworks with static fallback', () => {
@@ -33,21 +33,31 @@ test('derives repeated component candidates, tokens, and observed motion only', 
   assert.equal(JSON.stringify(brief).includes('src='), false);
 });
 
-
 test('aggregates sorted deduplicated icon findings from capture profiles', () => {
   const brief = analyzeDesignFacts({
     framework: 'static',
     profiles: [
-      { name: 'desktop', regions: [], animations: [], icons: [
-        { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
-        { tag: 'svg', classTokens: ['unrelated'], attributes: {} },
-      ] },
-      { name: 'mobile', regions: [], animations: [], icons: [
-        { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
-        { tag: 'svg', classTokens: ['lucide-menu'], attributes: {} },
-      ] },
+      {
+        name: 'desktop',
+        regions: [],
+        animations: [],
+        icons: [
+          { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
+          { tag: 'svg', classTokens: ['unrelated'], attributes: {} },
+        ],
+      },
+      {
+        name: 'mobile',
+        regions: [],
+        animations: [],
+        icons: [
+          { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
+          { tag: 'svg', classTokens: ['lucide-menu'], attributes: {} },
+        ],
+      },
     ],
   });
+
   assert.deepEqual(brief.icons, [
     { vendor: 'Font Awesome', iconName: 'arrow-right', confidence: 'high' },
     { vendor: 'Lucide', iconName: 'menu', confidence: 'high' },
@@ -64,5 +74,23 @@ test('writes rebuild-safe brief, motion spec, and provenance without source URLs
     const provenance = await readFile(join(root, 'provenance.md'), 'utf8');
     assert.match(provenance, /private-learning/);
     assert.equal(provenance.includes('https://example.com/page'), false);
+  });
+});
+
+test('analyzes persisted derived facts and writes brief artifacts', async () => {
+  await withTestDir(async (root) => {
+    const artifactDirectory = join(root, '.pi', 'snatch', 'demo');
+    await mkdir(join(artifactDirectory, 'desktop'), { recursive: true });
+    await writeFile(
+      join(artifactDirectory, 'desktop', 'facts.json'),
+      JSON.stringify({ regions: [{ tag: 'main', role: null, styles: { color: 'rgb(0, 0, 0)' } }], animations: [] }),
+    );
+    const brief = await analyzeCapturedJob({
+      artifactDirectory,
+      projectDirectory: root,
+      job: { id: 'demo', consent: { origin: 'https://example.com', permissionMode: 'owned-or-authorized' } },
+    });
+    assert.equal(brief.framework, 'static');
+    await access(join(artifactDirectory, 'output', 'brief.json'));
   });
 });

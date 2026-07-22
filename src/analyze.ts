@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { detectIconCandidates, type DetectedIcon, type IconCandidate } from './icon-vendors.js';
@@ -40,6 +40,42 @@ export async function writeDesignBrief(
     join(outputDirectory, 'provenance.md'),
     `# Provenance\n\nOrigin: ${provenance.origin}\nPermission mode: ${provenance.permissionMode}\n\nNo source assets or code were reused.\n`,
   );
+}
+
+export interface AnalyzeCapturedJobOptions {
+  artifactDirectory: string;
+  projectDirectory: string;
+  job: { id: string; consent: { origin: string; permissionMode: string } };
+}
+
+async function readPackageJson(projectDirectory: string): Promise<PackageJson> {
+  try {
+    return JSON.parse(await readFile(join(projectDirectory, 'package.json'), 'utf8')) as PackageJson;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new Error('Project package.json is invalid.');
+  }
+}
+
+export async function analyzeCapturedJob(options: AnalyzeCapturedJobOptions): Promise<DesignBrief> {
+  const profiles = [] as Array<{ name: string; regions: Region[]; animations: Motion[]; icons: IconCandidate[] }>;
+  for (const name of ['desktop', 'mobile']) {
+    try {
+      const fact = JSON.parse(await readFile(join(options.artifactDirectory, name, 'facts.json'), 'utf8')) as Partial<{ regions: Region[]; animations: Motion[]; icons: IconCandidate[] }>;
+      profiles.push({
+        name,
+        regions: Array.isArray(fact.regions) ? fact.regions : [],
+        animations: Array.isArray(fact.animations) ? fact.animations : [],
+        icons: Array.isArray(fact.icons) ? fact.icons : [],
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Capture facts are invalid for ${name}.`);
+    }
+  }
+  if (profiles.length === 0) throw new Error('No capture facts available for analysis.');
+  const brief = analyzeDesignFacts({ framework: detectFramework(await readPackageJson(options.projectDirectory)), profiles });
+  await writeDesignBrief(join(options.artifactDirectory, 'output'), brief, options.job.consent);
+  return brief;
 }
 
 export function analyzeDesignFacts(input: {

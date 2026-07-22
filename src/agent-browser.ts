@@ -54,6 +54,8 @@ export interface AgentBrowserClientOptions {
   artifactDirectory?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Permit loopback-only navigation for explicit local validation. */
+  allowLoopback?: boolean;
 }
 
 function redact(value: string): string {
@@ -62,6 +64,19 @@ function redact(value: string): string {
     value,
   );
   return credentialRedacted.replace(/([?&][^=&\s]+)=([^&#\s]+)/g, '$1=[REDACTED]');
+}
+
+function normalizeLoopbackUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error('A valid local http or https URL is required.'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw new Error('A valid local http or https URL is required.');
+  }
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    throw new Error('Validation URL must use loopback host.');
+  }
+  url.hash = '';
+  return url.toString();
 }
 
 function compact(value: string): string {
@@ -105,6 +120,7 @@ export class AgentBrowserClient {
   private readonly artifactDirectory?: string;
   private readonly timeoutMs?: number;
   private readonly signal?: AbortSignal;
+  private readonly allowLoopback: boolean;
   private coreGuideLoaded = false;
   private commandCount = 0;
 
@@ -117,6 +133,7 @@ export class AgentBrowserClient {
     this.artifactDirectory = options.artifactDirectory;
     this.timeoutMs = options.timeoutMs;
     this.signal = options.signal;
+    this.allowLoopback = options.allowLoopback ?? false;
   }
 
   async loadCoreGuide(): Promise<void> {
@@ -202,11 +219,28 @@ export class AgentBrowserClient {
     return (await this.run(['network', 'requests'])).stdout;
   }
 
+  async focus(target: string): Promise<void> {
+    await this.run(['focus', target]);
+  }
+
+  async hover(target: string): Promise<void> {
+    await this.run(['hover', target]);
+  }
+
+  async press(key: string): Promise<void> {
+    await this.run(['press', key]);
+  }
+
+  async click(target: string): Promise<void> {
+    await this.run(['click', target]);
+  }
+
   async close(): Promise<void> {
     await this.run(['close']);
   }
 
   private async assertResolvedPublicUrl(value: string): Promise<string> {
+    if (this.allowLoopback) return normalizeLoopbackUrl(value);
     const normalizedUrl = normalizePublicUrl(value);
     const hostname = new URL(normalizedUrl).hostname.replace(/^\[|\]$/g, '');
     if (isIP(hostname)) return normalizedUrl;

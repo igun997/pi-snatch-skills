@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
 
-import type { PermissionMode, SnatchJob } from './contracts.js';
+import type { JobStatus, PermissionMode, SnatchJob } from './contracts.js';
 
 const SAFE_JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -56,6 +56,12 @@ async function ensureRealDirectory(path: string): Promise<void> {
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error(`Artifact path must be a real directory: ${path}`);
   }
+}
+
+async function assertExistingRealDirectory(path: string): Promise<void> {
+  const stat = await lstat(path);
+  if (stat.isSymbolicLink()) throw new Error(`Artifact path may not be a symlink: ${path}`);
+  if (!stat.isDirectory()) throw new Error(`Artifact path must be a real directory: ${path}`);
 }
 
 async function createNewRealDirectory(path: string): Promise<void> {
@@ -115,10 +121,14 @@ export function normalizePublicUrl(value: string): string {
 }
 
 /** Creates durable, origin-scoped consent metadata and persists it atomically. */
-export async function createJob(options: CreateJobOptions): Promise<SnatchJob> {
-  if (!SAFE_JOB_ID.test(options.id)) {
+function assertSafeJobId(id: string): void {
+  if (!SAFE_JOB_ID.test(id)) {
     throw new Error('Job IDs may contain only letters, numbers, hyphens, and underscores.');
   }
+}
+
+export async function createJob(options: CreateJobOptions): Promise<SnatchJob> {
+  assertSafeJobId(options.id);
 
   if (
     options.permissionMode !== 'owned-or-authorized'
@@ -159,6 +169,47 @@ export async function createJob(options: CreateJobOptions): Promise<SnatchJob> {
   await rename(temporaryJobPath, jobPath);
 
   return job;
+}
+
+/** Loads and validates durable job metadata without traversing outside its artifact directory. */
+export async function loadJob(root: string, id: string): Promise<SnatchJob> {
+  assertSafeJobId(id);
+  const piDirectory = join(root, '.pi');
+  const snatchDirectory = join(piDirectory, 'snatch');
+  const jobDirectory = join(snatchDirectory, id);
+  await assertExistingRealDirectory(piDirectory);
+  await assertExistingRealDirectory(snatchDirectory);
+  await assertExistingRealDirectory(jobDirectory);
+
+  const parsed: unknown = JSON.parse(await readFile(join(jobDirectory, 'job.json'), 'utf8'));
+  if (!parsed || typeof parsed !== 'object') throw new Error('Stored job metadata is invalid.');
+  const job = parsed as Partial<SnatchJob>;
+  if (
+    job.id !== id ||
+    typeof job.rootUrl !== 'string' ||
+    !job.consent ||
+    typeof job.consent.origin !== 'string' ||
+    (job.consent.permissionMode !== 'owned-or-authorized' && job.consent.permissionMode !== 'private-learning') ||
+    !['created', 'capturing', 'captured', 'validated', 'failed'].includes(job.status ?? '')
+  ) {
+    throw new Error('Stored job metadata is invalid.');
+  }
+  const rootUrl = normalizePublicUrl(job.rootUrl);
+  if (new URL(rootUrl).origin !== job.consent.origin || new URL(rootUrl).search) {
+    throw new Error('Stored job metadata has invalid consent origin.');
+  }
+  return job as SnatchJob;
+}
+
+/** Atomically updates only a job's lifecycle status. */
+export async function updateJobStatus(root: string, id: string, status: JobStatus): Promise<SnatchJob> {
+  const job = await loadJob(root, id);
+  const next: SnatchJob = { ...job, status };
+  const directory = join(root, '.pi', 'snatch', id);
+  const temporary = join(directory, `.job-${randomUUID()}.json`);
+  await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+  await rename(temporary, join(directory, 'job.json'));
+  return next;
 }
 
 /** Returns whether a URL belongs to the exact origin covered by the job's consent. */

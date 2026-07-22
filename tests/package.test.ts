@@ -34,3 +34,12 @@ test('uses the deterministic Node test launcher', async () => {
 
   assert.equal(pkg.scripts?.test, 'node scripts/run-tests.mjs');
 });
+
+test('ships screenshot comparison runtime dependencies', async () => {
+  const pkg = JSON.parse(await readFile(packageJsonUrl, 'utf8')) as {
+    dependencies?: Record<string, string>;
+  };
+
+  assert.ok(pkg.dependencies?.pixelmatch);
+  assert.ok(pkg.dependencies?.pngjs);
+});

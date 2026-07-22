@@ -21,7 +21,7 @@ function createRunner(overrides: Partial<Record<string, string>> = {}): {
     calls,
     runner: async (call) => {
       calls.push(call);
-      const command = call.args.filter((arg) => arg !== '--session' && arg !== 'snatch-job').join(' ');
+      const command = call.args.slice(2).join(' ');
       return {
         exitCode: 0,
         stdout: overrides[command] ?? (command === 'get url' ? 'https://example.com/final' : '{}'),
@@ -61,11 +61,15 @@ test('passes multiline browser introspection through stdin and parses JSON', asy
   assert.match(evalCall?.stdin ?? '', /const x = 1/);
 });
 
-
 test('parses bounded introspection JSON larger than diagnostic output limits', async () => {
   const payload = JSON.stringify({ icons: [{ vendor: 'Lucide', iconName: 'arrow-right'.repeat(2_000) }] });
   const { runner } = createRunner({ 'eval --stdin': JSON.stringify(payload) });
-  const client = new AgentBrowserClient({ jobId: 'job', runner, lookup: async () => [{ address: '93.184.216.34', family: 4 }] });
+  const client = new AgentBrowserClient({
+    jobId: 'job',
+    runner,
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+  });
+
   assert.deepEqual(await client.evalJson<{ icons: unknown[] }>('JSON.stringify({});'), JSON.parse(payload));
 });
 
@@ -192,4 +196,29 @@ test('redacts credential-like output from command errors', async () => {
       return true;
     },
   );
+});
+
+test('uses safe agent-browser actions for local validation scenarios', async () => {
+  const { runner, calls } = createRunner();
+  const client = new AgentBrowserClient({
+    jobId: 'job',
+    runner,
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+  });
+
+  await client.focus('#name');
+  await client.hover('#nav');
+  await client.press('Escape');
+  await client.click('#menu');
+
+  assert.deepEqual(calls.map((call) => call.args.slice(2)), [
+    ['focus', '#name'], ['hover', '#nav'], ['press', 'Escape'], ['click', '#menu'],
+  ]);
+});
+
+test('allows only explicit loopback URLs when configured for local validation', async () => {
+  const { runner } = createRunner({ 'get url': 'http://localhost:3000/final' });
+  const client = new AgentBrowserClient({ jobId: 'local', runner, allowLoopback: true });
+  assert.equal(await client.open('http://localhost:3000/start'), 'http://localhost:3000/final');
+  await assert.rejects(client.open('https://example.com/'), /loopback/i);
 });

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, readFile, symlink } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import type { PermissionMode } from '../src/contracts.js';
-import { canCapture, createJob, normalizePublicUrl } from '../src/jobs.js';
+import { canCapture, createJob, loadJob, normalizePublicUrl, updateJobStatus } from '../src/jobs.js';
 import { withTestDir } from './helpers/test-dir.js';
 
 test('normalizes public HTTPS URLs by canonicalizing host/default port and removing fragments', () => {
@@ -172,5 +172,41 @@ test('captures only URLs on the job consent origin', async () => {
     assert.equal(canCapture(job, 'https://example.com/other'), true);
     assert.equal(canCapture(job, 'https://other.example/page'), false);
     assert.equal(canCapture(job, 'https://user:secret@example.com/other'), false);
+  });
+});
+
+test('loads persisted job only from a safe artifact path', async () => {
+  await withTestDir(async (root) => {
+    const created = await createJob({
+      root,
+      id: 'loadable',
+      url: 'https://example.com/page',
+      permissionMode: 'owned-or-authorized',
+    });
+
+    assert.deepEqual(await loadJob(root, 'loadable'), created);
+    await assert.rejects(loadJob(root, '../loadable'), /Job IDs/i);
+  });
+});
+
+test('persists job status without changing recorded consent', async () => {
+  await withTestDir(async (root) => {
+    await createJob({ root, id: 'status-job', url: 'https://example.com/page', permissionMode: 'owned-or-authorized' });
+    const updated = await updateJobStatus(root, 'status-job', 'captured');
+    assert.equal(updated.status, 'captured');
+    assert.equal(updated.consent.origin, 'https://example.com');
+    assert.equal((await loadJob(root, 'status-job')).status, 'captured');
+  });
+});
+
+test('rejects symlinked artifact parents when loading a job', async () => {
+  await withTestDir(async (root) => {
+    const job = await createJob({ root, id: 'symlink-load', url: 'https://example.com/page', permissionMode: 'private-learning' });
+    const outside = join(root, 'outside');
+    await mkdir(join(outside, job.id), { recursive: true });
+    await writeFile(join(outside, job.id, 'job.json'), JSON.stringify(job));
+    await rm(join(root, '.pi', 'snatch'), { recursive: true });
+    await symlink(outside, join(root, '.pi', 'snatch'));
+    await assert.rejects(loadJob(root, job.id), /symlink/i);
   });
 });
