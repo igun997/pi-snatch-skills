@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import snatchDesignExtension from '../extensions/snatch-design.js';
 
-test('registers consent command, status command, capture, and validation tools', () => {
+test('registers consent command, status command, capture, validation, and full-clone tools', () => {
   const commands: string[] = [];
   const tools: string[] = [];
   const api = {
@@ -15,6 +15,6 @@ test('registers consent command, status command, capture, and validation tools',
 
   snatchDesignExtension(api);
 
-  assert.deepEqual(commands, ['snatch', 'snatch-status']);
-  assert.deepEqual(tools, ['snatch_status', 'snatch_capture', 'snatch_validate']);
+  assert.deepEqual(commands, ['snatch', 'snatch-status', 'snatch-full-clone']);
+  assert.deepEqual(tools, ['snatch_status', 'snatch_capture', 'snatch_full_clone', 'snatch_validate']);
 });

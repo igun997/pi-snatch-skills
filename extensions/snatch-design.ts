@@ -8,6 +8,7 @@ import { Type } from 'typebox';
 import { AgentBrowserClient } from '../src/agent-browser.js';
 import { analyzeCapturedJob } from '../src/analyze.js';
 import { captureJob } from '../src/capture.js';
+import { cloneAuthorizedSite } from '../src/full-clone.js';
 import { loadJob, normalizePublicUrl, canCapture, updateJobStatus } from '../src/jobs.js';
 import { nextRepairAttempt, validateJob } from '../src/validate.js';
 
@@ -44,6 +45,31 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
       try {
         const job = await loadJob(ctx.cwd, args.trim());
         ctx.ui.notify(`${job.id}: ${job.status}; .pi/snatch/${job.id}/`, 'info');
+      } catch (error) { ctx.ui.notify((error as Error).message, 'error'); }
+    },
+  });
+
+  pi.registerCommand('snatch-full-clone', {
+    description: 'Mirror same-origin source files for an owned or authorized consent job.',
+    handler: async (args, ctx) => {
+      const [jobId, outputDirectory] = args.trim().split(/\s+/, 2);
+      if (!jobId) { ctx.ui.notify('Usage: /snatch-full-clone <job-id> [output-directory]', 'error'); return; }
+      try {
+        const job = await loadJob(ctx.cwd, jobId);
+        if (job.consent.permissionMode !== 'owned-or-authorized') throw new Error('Full clone requires owned-or-authorized consent.');
+        if (!ctx.hasUI) throw new Error('Interactive confirmation required. Run in TUI or RPC mode.');
+        const confirmed = await ctx.ui.confirm('Confirm authorized full clone', `${job.rootUrl}\nCopies same-origin source files.`);
+        if (!confirmed) return;
+        await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+        const result = await cloneAuthorizedSite({
+          root: ctx.cwd,
+          artifactDirectory: join(ctx.cwd, '.pi', 'snatch', job.id),
+          job,
+          targetUrl: job.rootUrl,
+          outputDirectory,
+        });
+        await updateJobStatus(ctx.cwd, job.id, 'mirrored');
+        ctx.ui.notify(`Full clone complete: ${result.outputDirectory}/mirror-manifest.json`, 'info');
       } catch (error) { ctx.ui.notify((error as Error).message, 'error'); }
     },
   });
@@ -92,6 +118,45 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
         content: [{ type: 'text', text: `Capture complete. Brief: .pi/snatch/${job.id}/output/brief.json` }],
         details: stateDetails(job.id, job.consent.origin, 0, 'captured'),
       };
+    },
+  });
+
+  pi.registerTool({
+    name: 'snatch_full_clone',
+    label: 'Snatch Full Clone',
+    description: 'Mirror source files from an owned or authorized consent origin into a local directory.',
+    promptGuidelines: [
+      'Use only for an existing owned-or-authorized /snatch job.',
+      'Copy only same-origin resources; never provide credentials or submit forms.',
+    ],
+    parameters: Type.Object({
+      jobId: Type.String(),
+      targetUrl: Type.Optional(Type.String()),
+      outputDirectory: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const job = await loadJob(ctx.cwd, params.jobId);
+      if (job.consent.permissionMode !== 'owned-or-authorized') throw new Error('Full clone requires owned-or-authorized consent.');
+      const targetUrl = params.targetUrl ?? job.rootUrl;
+      if (!canCapture(job, targetUrl)) throw new Error('Full clone target is outside recorded consent origin.');
+      await updateJobStatus(ctx.cwd, job.id, 'mirroring');
+      try {
+        const result = await cloneAuthorizedSite({
+          root: ctx.cwd,
+          artifactDirectory: join(ctx.cwd, '.pi', 'snatch', job.id),
+          job,
+          targetUrl,
+          outputDirectory: params.outputDirectory,
+        });
+        await updateJobStatus(ctx.cwd, job.id, 'mirrored');
+        return {
+          content: [{ type: 'text', text: `Full clone complete. Manifest: ${result.outputDirectory}/mirror-manifest.json` }],
+          details: stateDetails(job.id, job.consent.origin, 0, 'mirrored'),
+        };
+      } catch (error) {
+        await updateJobStatus(ctx.cwd, job.id, 'failed');
+        throw error;
+      }
     },
   });
 

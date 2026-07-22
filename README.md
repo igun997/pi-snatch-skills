@@ -71,6 +71,22 @@ rm -rf .pi/snatch/<job-id>
 
 See [agent-browser setup](docs/agent-browser.md) and [icon vendor detection](docs/icon-vendor-detection.md).
 
+## Authorized full clone
+
+For websites you own or are explicitly authorized to copy, choose `owned-or-authorized` during `/snatch`, then run:
+
+```text
+/snatch-full-clone <job-id>
+```
+
+Default mirror path: `.pi/snatch/<job-id>/mirror/`. Use an optional project-local output path when needed:
+
+```text
+/snatch-full-clone <job-id> ./mirror-output
+```
+
+Full clone copies same-origin HTML, CSS, JavaScript, fonts, images, JSON, and assets. It is unavailable for `private-learning` jobs. See [authorized full clone skill](skills/full-clone/SKILL.md).
+
 ## Acceptance evidence
 
 Checked 2026-07-22 with Node `v22.20.0`, Pi `0.81.1`, and agent-browser `0.27.0`.
