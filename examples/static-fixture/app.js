@@ -1,0 +1,1 @@
+document.querySelector('#menu').addEventListener('click',(event)=>{const button=event.currentTarget;button.setAttribute('aria-expanded',String(button.getAttribute('aria-expanded')!=='true'));});
