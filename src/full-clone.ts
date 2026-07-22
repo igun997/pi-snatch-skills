@@ -57,7 +57,11 @@ function rewrite(content: string, sourceUrl: string, filePath: string, output: s
 
 const defaultFetcher: CloneFetcher = async (url) => {
   const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0', referer: new URL(url).origin } });
-  return { ok: response.ok, status: response.status, body: new Uint8Array(await response.arrayBuffer()), contentType: response.headers.get('content-type') ?? undefined };
+  const contentType = response.headers.get('content-type') ?? undefined;
+  const body = /(?:text\/|javascript|json|xml)/i.test(contentType ?? '')
+    ? await response.text()
+    : new Uint8Array(await response.arrayBuffer());
+  return { ok: response.ok, status: response.status, body, contentType };
 };
 
 export async function cloneAuthorizedSite(options: FullCloneOptions): Promise<{ outputDirectory: string; manifest: MirrorManifest }> {
