@@ -33,6 +33,28 @@ test('derives repeated component candidates, tokens, and observed motion only', 
   assert.equal(JSON.stringify(brief).includes('src='), false);
 });
 
+
+test('aggregates sorted deduplicated icon findings from capture profiles', () => {
+  const brief = analyzeDesignFacts({
+    framework: 'static',
+    profiles: [
+      { name: 'desktop', regions: [], animations: [], icons: [
+        { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
+        { tag: 'svg', classTokens: ['unrelated'], attributes: {} },
+      ] },
+      { name: 'mobile', regions: [], animations: [], icons: [
+        { tag: 'i', classTokens: ['fa-solid', 'fa-arrow-right'], attributes: {} },
+        { tag: 'svg', classTokens: ['lucide-menu'], attributes: {} },
+      ] },
+    ],
+  });
+  assert.deepEqual(brief.icons, [
+    { vendor: 'Font Awesome', iconName: 'arrow-right', confidence: 'high' },
+    { vendor: 'Lucide', iconName: 'menu', confidence: 'high' },
+    { vendor: 'unknown', iconName: null, confidence: 'low' },
+  ]);
+});
+
 test('writes rebuild-safe brief, motion spec, and provenance without source URLs', async () => {
   await withTestDir(async (root) => {
     const brief = analyzeDesignFacts({ framework: 'static', profiles: [{ name: 'desktop', regions: [], animations: [] }] });

@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { detectIconCandidates, type DetectedIcon, type IconCandidate } from './icon-vendors.js';
+
 export type Framework = 'next' | 'sveltekit' | 'vue' | 'static';
 
 type PackageJson = { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
@@ -12,6 +14,7 @@ export interface DesignBrief {
   components: Array<{ name: string; occurrences: number }>;
   tokens: { colors: string[]; fontFamilies: string[]; spacing: string[] };
   motion: Motion[];
+  icons: DetectedIcon[];
 }
 
 export function detectFramework(packageJson: PackageJson): Framework {
@@ -41,7 +44,7 @@ export async function writeDesignBrief(
 
 export function analyzeDesignFacts(input: {
   framework: Framework;
-  profiles: Array<{ name: string; regions: Region[]; animations: Motion[] }>;
+  profiles: Array<{ name: string; regions: Region[]; animations: Motion[]; icons?: IconCandidate[] }>;
 }): DesignBrief {
   const regions = input.profiles.flatMap((profile) => profile.regions);
   const counts = new Map<string, number>();
@@ -55,6 +58,7 @@ export function analyzeDesignFacts(input: {
     .sort((a, b) => a.name.localeCompare(b.name));
   const styles = regions.map((region) => region.styles);
   const motion = input.profiles.flatMap((profile) => profile.animations).map(({ target, duration, delay, easing, iterations }) => ({ target, duration, delay, easing, iterations }));
+  const icons = detectIconCandidates(input.profiles.flatMap((profile) => profile.icons ?? []));
   return {
     framework: input.framework,
     components,
@@ -64,5 +68,6 @@ export function analyzeDesignFacts(input: {
       spacing: unique(styles.flatMap((style) => [style.gap ?? '', style.paddingTop ?? '', style.marginTop ?? ''])),
     },
     motion,
+    icons,
   };
 }

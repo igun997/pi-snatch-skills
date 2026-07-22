@@ -181,9 +181,10 @@ export class AgentBrowserClient {
   }
 
   async evalJson<T>(script: string): Promise<T> {
-    const result = await this.run(['eval', '--stdin'], script);
+    const result = await this.run(['eval', '--stdin'], script, true);
     try {
-      return JSON.parse(result.stdout) as T;
+      const value = JSON.parse(result.stdout) as unknown;
+      return (typeof value === 'string' ? JSON.parse(value) : value) as T;
     } catch {
       throw new Error('agent-browser eval did not return valid JSON.');
     }
@@ -222,7 +223,7 @@ export class AgentBrowserClient {
     return normalizedUrl;
   }
 
-  private async run(args: string[], stdin?: string): Promise<{ stdout: string; stderr: string }> {
+  private async run(args: string[], stdin?: string, preserveStdout = false): Promise<{ stdout: string; stderr: string }> {
     const call: RunnerCall = {
       executable: this.executable,
       args: ['--session', this.session, ...args],
@@ -236,7 +237,7 @@ export class AgentBrowserClient {
     if (result.exitCode !== 0) {
       throw new AgentBrowserCommandError(command, result.exitCode, diagnosticPath);
     }
-    return { stdout: compact(result.stdout), stderr: compact(result.stderr) };
+    return { stdout: preserveStdout ? result.stdout : compact(result.stdout), stderr: compact(result.stderr) };
   }
 
   private async writeDiagnostic(command: string, result: CommandResult): Promise<string | undefined> {

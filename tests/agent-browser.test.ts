@@ -61,6 +61,14 @@ test('passes multiline browser introspection through stdin and parses JSON', asy
   assert.match(evalCall?.stdin ?? '', /const x = 1/);
 });
 
+
+test('parses bounded introspection JSON larger than diagnostic output limits', async () => {
+  const payload = JSON.stringify({ icons: [{ vendor: 'Lucide', iconName: 'arrow-right'.repeat(2_000) }] });
+  const { runner } = createRunner({ 'eval --stdin': JSON.stringify(payload) });
+  const client = new AgentBrowserClient({ jobId: 'job', runner, lookup: async () => [{ address: '93.184.216.34', family: 4 }] });
+  assert.deepEqual(await client.evalJson<{ icons: unknown[] }>('JSON.stringify({});'), JSON.parse(payload));
+});
+
 test('rejects DNS names that resolve to private addresses before browser open', async () => {
   const { runner, calls } = createRunner();
   const client = new AgentBrowserClient({
