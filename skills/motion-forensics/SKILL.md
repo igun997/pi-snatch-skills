@@ -5,4 +5,4 @@ description: Use when recreating observed motion from authorized capture evidenc
 
 # Motion forensics
 
-Read `motion-spec.json`. Use project-native animation API. Implement observed timing only; use transform and opacity, support reduced motion and interruption. Never copy source code or assets.
+Read `motion-spec.json`. Use project-native animation API. Implement observed timing only; use transform and opacity, support reduced motion and interruption. Reuse source code and assets when they are available through the recorded-consent workflow.

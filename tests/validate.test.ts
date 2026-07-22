@@ -36,6 +36,9 @@ test('validates desktop, mobile, and reduced-motion local profiles', async () =>
         setDevice: async () => {},
         setReducedMotion: async () => { visited.push(`${profile.name}:reduced`); },
         waitForIdle: async () => {},
+        wait: async () => {},
+        scrollTo: async (y) => y,
+        evalJson: async () => ({ animations: [], videos: [], media: { reducedMotion: true } }),
         screenshot: async (path) => { await writeFile(path, PNG.sync.write(baseline)); },
         snapshot: async () => 'local snapshot',
         errors: async () => '',
@@ -47,6 +50,67 @@ test('validates desktop, mobile, and reduced-motion local profiles', async () =>
     assert.equal(report.passed, true);
     assert.equal(visited.includes('reduced-motion:reduced'), true);
     assert.equal(report.findings.length, 0);
+  });
+});
+
+test('replays captured desktop and mobile scroll states against local rebuild', async () => {
+  await withTestDir(async (root) => {
+    const artifactDirectory = join(root, '.pi', 'snatch', 'motion-validation');
+    const baseline = new PNG({ width: 1, height: 1 });
+    baseline.data.set([0, 0, 0, 255]);
+    for (const profile of ['desktop', 'mobile']) {
+      const motionDirectory = join(artifactDirectory, profile, 'motion');
+      await mkdir(motionDirectory, { recursive: true });
+      await writeFile(join(artifactDirectory, profile, 'page.png'), PNG.sync.write(baseline));
+      await writeFile(join(motionDirectory, 'scroll-00.png'), PNG.sync.write(baseline));
+      await writeFile(join(motionDirectory, 'scroll-01.png'), PNG.sync.write(baseline));
+      await writeFile(join(motionDirectory, 'motion.json'), JSON.stringify({ samples: [{ index: 0, scrollY: 0 }, { index: 1, scrollY: 250 }] }));
+    }
+    const scrolls: string[] = [];
+    const report = await validateJob({
+      job: { id: 'motion-validation', rootUrl: 'https://example.com/', status: 'captured', consent: { origin: 'https://example.com', permissionMode: 'private-learning', createdAt: '2026-07-22T00:00:00.000Z' } },
+      artifactDirectory,
+      localUrl: 'http://localhost:3000/',
+      createBrowser: (profile) => ({
+        open: async (url) => url,
+        setViewport: async () => {}, setDevice: async () => {}, setReducedMotion: async () => {}, waitForIdle: async () => {}, wait: async () => {},
+        scrollTo: async (y) => { scrolls.push(`${profile.name}:${y}`); return y; },
+        evalJson: async () => ({ animations: [], videos: [], media: { reducedMotion: profile.name === 'reduced-motion' } }),
+        screenshot: async (path) => { await writeFile(path, PNG.sync.write(baseline)); },
+        snapshot: async () => 'local snapshot', errors: async () => '', console: async () => '', networkRequests: async () => '[]', close: async () => {},
+      }),
+    });
+
+    assert.equal(report.passed, true);
+    assert.deepEqual(scrolls.sort(), ['desktop:0', 'desktop:250', 'mobile:0', 'mobile:250']);
+  });
+});
+
+test('reports active infinite animation and video under reduced motion', async () => {
+  await withTestDir(async (root) => {
+    const artifactDirectory = join(root, '.pi', 'snatch', 'reduced-motion-validation');
+    const baseline = new PNG({ width: 1, height: 1 });
+    baseline.data.set([0, 0, 0, 255]);
+    for (const profile of ['desktop', 'mobile']) {
+      await mkdir(join(artifactDirectory, profile), { recursive: true });
+      await writeFile(join(artifactDirectory, profile, 'page.png'), PNG.sync.write(baseline));
+    }
+    const report = await validateJob({
+      job: { id: 'reduced-motion-validation', rootUrl: 'https://example.com/', status: 'captured', consent: { origin: 'https://example.com', permissionMode: 'private-learning', createdAt: '2026-07-22T00:00:00.000Z' } },
+      artifactDirectory,
+      localUrl: 'http://localhost:3000/',
+      createBrowser: (profile) => ({
+        open: async (url) => url,
+        setViewport: async () => {}, setDevice: async () => {}, setReducedMotion: async () => {}, waitForIdle: async () => {}, wait: async () => {}, scrollTo: async (y) => y,
+        evalJson: async () => profile.name === 'reduced-motion'
+          ? { animations: [{ playState: 'running', iterations: Infinity }], videos: [{ paused: false }], media: { reducedMotion: true } }
+          : { animations: [], videos: [], media: { reducedMotion: false } },
+        screenshot: async (path) => { await writeFile(path, PNG.sync.write(baseline)); },
+        snapshot: async () => 'local snapshot', errors: async () => '', console: async () => '', networkRequests: async () => '[]', close: async () => {},
+      }),
+    });
+
+    assert.deepEqual(report.findings.map((finding) => finding.code).sort(), ['reduced-motion-active-video', 'reduced-motion-infinite-animation']);
   });
 });
 

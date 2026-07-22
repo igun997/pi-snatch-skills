@@ -65,6 +65,29 @@ test('aggregates sorted deduplicated icon findings from capture profiles', () =>
   ]);
 });
 
+test('derives evidence-linked scroll effects into motion spec', async () => {
+  const brief = analyzeDesignFacts({
+    framework: 'static',
+    profiles: [{
+      name: 'desktop',
+      regions: [],
+      animations: [],
+      motionSamples: [
+        { index: 0, scrollY: 0, facts: { regions: [{ tag: 'section', role: null, box: { x: 0, y: 300, width: 800, height: 300 }, styles: { opacity: '0', position: 'static', transform: 'none' } }], videos: [] } },
+        { index: 1, scrollY: 500, facts: { regions: [{ tag: 'section', role: null, box: { x: 0, y: 50, width: 800, height: 300 }, styles: { opacity: '1', position: 'static', transform: 'none' } }], videos: [] } },
+      ],
+    }],
+  });
+
+  assert.deepEqual(brief.motionObservations.map((effect) => effect.kind), ['reveal']);
+  await withTestDir(async (root) => {
+    await writeDesignBrief(root, brief, { origin: 'https://example.com', permissionMode: 'private-learning' });
+    const motionSpec = JSON.parse(await readFile(join(root, 'motion-spec.json'), 'utf8')) as { cssAnimations: unknown[]; scrollEffects: Array<{ kind: string }> };
+    assert.deepEqual(motionSpec.cssAnimations, []);
+    assert.deepEqual(motionSpec.scrollEffects.map((effect) => effect.kind), ['reveal']);
+  });
+});
+
 test('writes rebuild-safe brief, motion spec, and provenance without source URLs', async () => {
   await withTestDir(async (root) => {
     const brief = analyzeDesignFacts({ framework: 'static', profiles: [{ name: 'desktop', regions: [], animations: [] }] });

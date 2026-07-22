@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -41,8 +41,68 @@ test('loads current agent-browser core guide before opening a public URL', async
 
   await client.open('https://example.com/page');
 
-  const commands = calls.map((call) => call.args.filter((arg) => arg !== '--session' && arg !== 'snatch-job').join(' '));
+  const commands = calls.map((call) => call.args.slice(2).join(' '));
   assert.deepEqual(commands, ['skills get core --full', 'open https://example.com/page', 'get url']);
+});
+
+test('bounds long job IDs to a socket-safe browser session name', async () => {
+  const { runner, calls } = createRunner();
+  const client = new AgentBrowserClient({
+    jobId: 'snatch-76ded4ad-3983-4f9b-8650-f5b2121e5a8c-validation-reduced-motion',
+    runner,
+  });
+
+  await client.loadCoreGuide();
+
+  const session = calls[0]?.args[1];
+  assert.ok(session);
+  assert.match(session, /^snatch-[a-f0-9]{16}$/);
+  assert.ok(session.length <= 24);
+});
+
+test('persists screenshot from agent-browser temporary output', async () => {
+  await withTestDir(async (root) => {
+    const source = join(root, 'browser-screenshot.png');
+    const destination = join(root, 'artifacts', 'tile.png');
+    await writeFile(source, 'png-bytes');
+    const { runner, calls } = createRunner({ 'screenshot --full': `✓ Screenshot saved to ${source}` });
+    const client = new AgentBrowserClient({
+      jobId: 'job',
+      runner,
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    });
+
+    await client.screenshot(destination, true);
+
+    await access(destination);
+    assert.equal(await readFile(destination, 'utf8'), 'png-bytes');
+    assert.deepEqual(calls.at(-1)?.args.slice(2), ['screenshot', '--full']);
+  });
+});
+
+test('reads document bounds and returns actual absolute scroll position', async () => {
+  const calls: RunnerCall[] = [];
+  const runner: CommandRunner = async (call) => {
+    calls.push(call);
+    return {
+      exitCode: 0,
+      stdout: call.stdin?.includes('window.scrollTo')
+        ? JSON.stringify('700')
+        : JSON.stringify(JSON.stringify({ width: 1_440, height: 8_525, viewportWidth: 1_440 })),
+      stderr: '',
+    };
+  };
+  const client = new AgentBrowserClient({
+    jobId: 'job',
+    runner,
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+  });
+
+  assert.deepEqual(await client.documentSize(), { width: 1_440, height: 8_525, viewportWidth: 1_440 });
+  assert.equal(await client.scrollTo(700), 700);
+  assert.match(calls.at(-1)?.stdin ?? '', /\(\(\) => \{/);
+  assert.match(calls.at(-1)?.stdin ?? '', /scrollBehavior = 'auto'/);
+  assert.match(calls.at(-1)?.stdin ?? '', /window\.scrollTo\(0, 700\)/);
 });
 
 test('passes multiline browser introspection through stdin and parses JSON', async () => {
@@ -57,7 +117,9 @@ test('passes multiline browser introspection through stdin and parses JSON', asy
 
   assert.deepEqual(result, { regions: [] });
   const evalCall = calls.at(-1);
-  assert.deepEqual(evalCall?.args, ['--session', 'snatch-job', 'eval', '--stdin']);
+  assert.equal(evalCall?.args[0], '--session');
+  assert.match(evalCall?.args[1] ?? '', /^snatch-[a-f0-9]{16}$/);
+  assert.deepEqual(evalCall?.args.slice(2), ['eval', '--stdin']);
   assert.match(evalCall?.stdin ?? '', /const x = 1/);
 });
 

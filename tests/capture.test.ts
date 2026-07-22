@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
+import { PNG } from 'pngjs';
 
 import { captureJob, settleAndScroll, type CaptureBrowser } from '../src/capture.js';
 import { createJob } from '../src/jobs.js';
@@ -10,6 +11,9 @@ import { withTestDir } from './helpers/test-dir.js';
 class FakeBrowser implements CaptureBrowser {
   readonly calls: string[] = [];
   closed = false;
+  private width = 1_440;
+  private height = 900;
+  private scale = 1;
 
   constructor(
     private readonly failOn?: string,
@@ -22,17 +26,27 @@ class FakeBrowser implements CaptureBrowser {
   }
   async setDevice(name: string): Promise<void> { this.calls.push(`device:${name}`); }
   async setViewport(width: number, height: number, scale?: number): Promise<void> {
-    this.calls.push(`viewport:${width}x${height}@${scale ?? 1}`);
+    this.width = width;
+    this.height = height;
+    this.scale = scale ?? 1;
+    this.calls.push(`viewport:${width}x${height}@${this.scale}`);
   }
   async reload(): Promise<void> { this.calls.push('reload'); }
   async waitForIdle(): Promise<void> { this.calls.push('wait'); }
   async wait(ms: number): Promise<void> { this.calls.push(`delay:${ms}`); }
   async scroll(delta: number): Promise<void> { this.calls.push(`scroll:${delta}`); }
   async scrollToTop(): Promise<void> { this.calls.push('top'); }
-  async documentHeight(): Promise<number> { this.calls.push('height'); return 900; }
+  async documentHeight(): Promise<number> { this.calls.push('height'); return this.height; }
+  async documentSize(): Promise<{ width: number; height: number; viewportWidth: number }> {
+    this.calls.push('size');
+    return { width: this.width, height: this.height, viewportWidth: this.width };
+  }
+  async scrollTo(y: number): Promise<number> { this.calls.push(`scrollTo:${y}`); return y; }
   async screenshot(path: string, fullPage?: boolean): Promise<void> {
     this.calls.push(`screenshot:${fullPage ? 'full' : 'viewport'}`);
-    await writeFile(path, fullPage ? 'full' : 'viewport', 'utf8');
+    const image = new PNG({ width: this.width * this.scale, height: this.height * this.scale });
+    image.data.fill(255);
+    await writeFile(path, PNG.sync.write(image));
   }
   async snapshot(): Promise<string> { this.calls.push('snapshot'); return 'accessibility snapshot'; }
   async evalJson<T>(): Promise<T> {
@@ -55,7 +69,7 @@ test('settles and scrolls lazy content before capture', async () => {
   assert.deepEqual(browser.calls, ['delay:8000', 'height', 'scroll:700', 'delay:500', 'height', 'top', 'delay:1000']);
 });
 
-test('captures desktop and mobile evidence without source code or assets', async () => {
+test('captures desktop and mobile evidence under recorded consent', async () => {
   await withTestDir(async (root) => {
     const job = await createJob({
       root,
@@ -97,6 +111,109 @@ test('captures desktop and mobile evidence without source code or assets', async
     }
     const facts = await readFile(join(desktop, 'facts.json'), 'utf8');
     assert.equal(facts.includes('temporary=not-persisted'), false);
+  });
+});
+
+class TileBrowser implements CaptureBrowser {
+  readonly calls: string[] = [];
+  private width = 1_440;
+  private height = 900;
+  private scale = 1;
+
+  async open(url: string): Promise<string> { this.calls.push(`open:${url}`); return url; }
+  async setDevice(name: string): Promise<void> { this.calls.push(`device:${name}`); }
+  async setViewport(width: number, height: number, scale?: number): Promise<void> {
+    this.width = width;
+    this.height = height;
+    this.scale = scale ?? 1;
+    this.calls.push(`viewport:${width}x${height}@${this.scale}`);
+  }
+  async reload(): Promise<void> { this.calls.push('reload'); }
+  async waitForIdle(): Promise<void> { this.calls.push('wait'); }
+  async wait(ms: number): Promise<void> { this.calls.push(`delay:${ms}`); }
+  async scroll(delta: number): Promise<void> { this.calls.push(`scroll:${delta}`); }
+  async scrollToTop(): Promise<void> { this.calls.push('top'); }
+  async documentHeight(): Promise<number> { this.calls.push('height'); return 2_100; }
+  async documentSize(): Promise<{ width: number; height: number; viewportWidth: number }> {
+    this.calls.push('size');
+    return { width: this.width, height: 2_100, viewportWidth: this.width };
+  }
+  async scrollTo(y: number): Promise<number> { this.calls.push(`scrollTo:${y}`); return y; }
+  async screenshot(path: string, fullPage?: boolean): Promise<void> {
+    this.calls.push(`screenshot:${fullPage ? 'full' : 'viewport'}`);
+    const image = new PNG({ width: this.width * this.scale, height: this.height * this.scale });
+    image.data.fill(255);
+    await writeFile(path, PNG.sync.write(image));
+  }
+  async snapshot(): Promise<string> { return 'snapshot'; }
+  async evalJson<T>(): Promise<T> { return { regions: [], animations: [] } as T; }
+  async errors(): Promise<string> { return ''; }
+  async console(): Promise<string> { return ''; }
+  async networkRequests(): Promise<string> { return '[]'; }
+  async close(): Promise<void> { this.calls.push('close'); }
+}
+
+test('captures full-page evidence from overlapping viewport tiles', async () => {
+  await withTestDir(async (root) => {
+    const job = await createJob({ root, id: 'tile-job', url: 'https://example.com/', permissionMode: 'private-learning' });
+    const browsers: TileBrowser[] = [];
+
+    const manifest = await captureJob({
+      job,
+      targetUrl: 'https://example.com/',
+      artifactDirectory: join(root, '.pi', 'snatch', job.id),
+      createBrowser: () => {
+        const browser = new TileBrowser();
+        browsers.push(browser);
+        return browser;
+      },
+    });
+
+    assert.deepEqual(browsers[0]?.calls.filter((call) => call.startsWith('scrollTo:')), [
+      'scrollTo:0', 'scrollTo:300', 'scrollTo:600', 'scrollTo:900', 'scrollTo:1200',
+      'scrollTo:0', 'scrollTo:1200', 'scrollTo:500', 'scrollTo:0', 'scrollTo:0',
+    ]);
+    assert.equal(browsers.every((browser) => browser.calls.includes('screenshot:full')), false);
+    assert.ok(manifest.artifacts.some((artifact) => artifact.path === 'desktop/full-page.png'));
+  });
+});
+
+test('persists passive scroll-state screenshots and safe motion facts', async () => {
+  await withTestDir(async (root) => {
+    const job = await createJob({ root, id: 'motion-job', url: 'https://example.com/', permissionMode: 'private-learning' });
+    const artifactDirectory = join(root, '.pi', 'snatch', job.id);
+
+    const manifest = await captureJob({
+      job,
+      targetUrl: 'https://example.com/',
+      artifactDirectory,
+      createBrowser: () => new TileBrowser(),
+    });
+
+    const motionDirectory = join(artifactDirectory, 'desktop', 'motion');
+    const motion = JSON.parse(await readFile(join(motionDirectory, 'motion.json'), 'utf8')) as { samples: Array<{ scrollY: number }> };
+    assert.deepEqual(motion.samples.map((sample) => sample.scrollY), [0, 300, 600, 900, 1200]);
+    for (const index of ['00', '01', '02', '03', '04']) await access(join(motionDirectory, `scroll-${index}.png`));
+    assert.ok(manifest.artifacts.some((artifact) => artifact.path === 'desktop/motion/motion.json'));
+  });
+});
+
+test('removes stale full-page segments before writing a fresh capture', async () => {
+  await withTestDir(async (root) => {
+    const job = await createJob({ root, id: 'stale-full-page-job', url: 'https://example.com/', permissionMode: 'private-learning' });
+    const artifactDirectory = join(root, '.pi', 'snatch', job.id);
+    const stalePath = join(artifactDirectory, 'desktop', 'full-page-2.png');
+    await mkdir(join(artifactDirectory, 'desktop'), { recursive: true });
+    await writeFile(stalePath, 'stale');
+
+    await captureJob({
+      job,
+      targetUrl: 'https://example.com/',
+      artifactDirectory,
+      createBrowser: () => new TileBrowser(),
+    });
+
+    await assert.rejects(access(stalePath));
   });
 });
 

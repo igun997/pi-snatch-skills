@@ -1,0 +1,3 @@
+[submodule "vendor/faiz-skills"]
+	path = vendor/faiz-skills
+	url = https://github.com/julianromli/faiz-skills.git

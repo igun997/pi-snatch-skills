@@ -20,6 +20,7 @@ function captureBrowser(): CaptureBrowser {
     open: async (url) => url,
     setDevice: async () => {}, setViewport: async () => {}, reload: async () => {}, waitForIdle: async () => {},
     wait: async () => {}, scroll: async () => {}, scrollToTop: async () => {}, documentHeight: async () => 1,
+    documentSize: async () => ({ width: 1, height: 1, viewportWidth: 1 }), scrollTo: async (y) => y,
     screenshot: async (path) => { await writeFile(path, screenshot(0)); },
     snapshot: async () => 'safe snapshot',
     evalJson: async <T>() => ({ regions: [{ tag: 'main', role: null, styles: { color: 'rgb(0, 0, 0)' } }], animations: [] }) as T,
@@ -31,8 +32,10 @@ function validationBrowser(color: number): ValidationBrowser {
   return {
     open: async (url) => url,
     setDevice: async () => {}, setViewport: async () => {}, setReducedMotion: async () => {}, waitForIdle: async () => {},
+    wait: async () => {}, scrollTo: async (y) => y,
     screenshot: async (path) => { await writeFile(path, screenshot(color)); },
     snapshot: async () => 'local snapshot',
+    evalJson: async () => ({ animations: [], videos: [], media: { reducedMotion: true } }),
     errors: async () => '', console: async () => '', networkRequests: async () => '[]', close: async () => {},
   };
 }

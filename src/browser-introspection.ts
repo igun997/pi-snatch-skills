@@ -1,7 +1,7 @@
 export const BROWSER_INTROSPECTION_SCRIPT = `(() => {
   const styleProperties = [
     'display', 'position', 'color', 'backgroundColor', 'fontFamily', 'fontSize',
-    'fontWeight', 'lineHeight', 'letterSpacing', 'borderRadius', 'gap', 'paddingTop',
+    'fontWeight', 'lineHeight', 'letterSpacing', 'borderRadius', 'gap', 'opacity', 'transform', 'position', 'paddingTop',
     'paddingRight', 'paddingBottom', 'paddingLeft', 'marginTop', 'marginBottom',
   ];
   const visible = (element) => {
@@ -57,15 +57,21 @@ export const BROWSER_INTROSPECTION_SCRIPT = `(() => {
       duration: timing?.duration ?? null,
       delay: timing?.delay ?? null,
       easing: timing?.easing ?? null,
-      iterations: timing?.iterations ?? null,
+      iterations: timing?.iterations === Infinity ? 'infinite' : timing?.iterations ?? null,
     };
   });
+  const videos = Array.from(document.querySelectorAll('video')).slice(0, 50).map((video) => ({
+    currentTime: Number(video.currentTime.toFixed(3)),
+    duration: Number.isFinite(video.duration) ? Number(video.duration.toFixed(3)) : null,
+    paused: video.paused,
+  }));
   return JSON.stringify({
     viewport: { width: window.innerWidth, height: window.innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
     regions: elements,
     animations,
     icons: iconCandidates,
+    videos,
     media: { reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches },
   });
 })()`;

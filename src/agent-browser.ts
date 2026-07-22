@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 
 import { isPublicHost, normalizePublicUrl } from './jobs.js';
 
@@ -129,7 +130,8 @@ export class AgentBrowserClient {
     this.runner = options.runner ?? defaultRunner;
     this.lookup = options.lookup ?? ((hostname, lookupOptions) =>
       dnsLookup(hostname, lookupOptions) as Promise<Array<{ address: string; family: number }>>);
-    this.session = `snatch-${options.jobId}`;
+    const sessionHash = createHash('sha256').update(options.jobId).digest('hex').slice(0, 16);
+    this.session = `snatch-${sessionHash}`;
     this.artifactDirectory = options.artifactDirectory;
     this.timeoutMs = options.timeoutMs;
     this.signal = options.signal;
@@ -196,8 +198,39 @@ export class AgentBrowserClient {
     return this.evalJson<number>('JSON.stringify(document.documentElement.scrollHeight)');
   }
 
+  async documentSize(): Promise<{ width: number; height: number; viewportWidth: number }> {
+    return this.evalJson(`JSON.stringify((() => {
+      const root = document.documentElement;
+      const body = document.body;
+      return {
+        width: Math.max(root.clientWidth, root.scrollWidth, root.offsetWidth, body?.scrollWidth ?? 0, body?.offsetWidth ?? 0),
+        height: Math.max(root.clientHeight, root.scrollHeight, root.offsetHeight, body?.scrollHeight ?? 0, body?.offsetHeight ?? 0),
+        viewportWidth: window.innerWidth,
+      };
+    })())`);
+  }
+
+  async scrollTo(y: number): Promise<number> {
+    if (!Number.isFinite(y) || y < 0) throw new Error('Scroll position must be a non-negative finite number.');
+    return this.evalJson<number>(`JSON.stringify((() => {
+      const root = document.documentElement;
+      const previousScrollBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      window.scrollTo(0, ${Math.round(y)});
+      const actualY = window.scrollY;
+      root.style.scrollBehavior = previousScrollBehavior;
+      return actualY;
+    })())`);
+  }
+
   async screenshot(path: string, fullPage = false): Promise<void> {
-    await this.run(['screenshot', ...(fullPage ? ['--full'] : []), path]);
+    const result = await this.run(['screenshot', ...(fullPage ? ['--full'] : [])]);
+    const source = result.stdout.match(/Screenshot saved to\s+([^\r\n]+\.png)/i)?.[1]?.trim();
+    if (!source || !isAbsolute(source)) {
+      throw new Error('agent-browser did not report an absolute PNG screenshot path.');
+    }
+    await mkdir(dirname(path), { recursive: true });
+    await copyFile(source, path);
   }
 
   async snapshot(interactive = false): Promise<string> {

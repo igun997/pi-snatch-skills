@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import { BROWSER_INTROSPECTION_SCRIPT } from './browser-introspection.js';
 import type { CaptureArtifact, CaptureManifest, CaptureProfile, SnatchJob } from './contracts.js';
+import { planVerticalTiles, stitchTiles } from './full-page-stitch.js';
 import { canCapture } from './jobs.js';
+import { planMotionSamplePositions, type MotionFacts, type MotionSample } from './motion.js';
 
 export interface CaptureBrowser {
   open(url: string): Promise<string>;
@@ -16,6 +18,8 @@ export interface CaptureBrowser {
   scroll(delta: number): Promise<void>;
   scrollToTop(): Promise<void>;
   documentHeight(): Promise<number>;
+  documentSize(): Promise<{ width: number; height: number; viewportWidth: number }>;
+  scrollTo(y: number): Promise<number>;
   screenshot(path: string, fullPage?: boolean): Promise<void>;
   snapshot(interactive?: boolean): Promise<string>;
   evalJson<T>(script: string): Promise<T>;
@@ -61,6 +65,13 @@ async function writeJson(path: string, value: unknown): Promise<CaptureArtifact>
   return artifactFor(path, 'application/json');
 }
 
+async function removeStaleFullPageArtifacts(profileDirectory: string): Promise<void> {
+  const entries = await readdir(profileDirectory);
+  await Promise.all(entries
+    .filter((entry) => /^full-page(?:-\d+)?\.png$/.test(entry))
+    .map((entry) => rm(join(profileDirectory, entry), { force: true })));
+}
+
 async function artifactFor(path: string, mediaType: string): Promise<CaptureArtifact> {
   const content = await readFile(path);
   return {
@@ -80,6 +91,7 @@ async function captureProfile(
   const browser = createBrowser(profile);
   const profileDirectory = join(artifactDirectory, profile.name);
   await mkdir(profileDirectory, { recursive: true });
+  await removeStaleFullPageArtifacts(profileDirectory);
   let captureCompleted = false;
 
   try {
@@ -93,11 +105,57 @@ async function captureProfile(
     await browser.waitForIdle();
     await settleAndScroll(browser);
 
-    const pagePath = join(profileDirectory, 'page.png');
-    const fullPagePath = join(profileDirectory, 'full-page.png');
-    await browser.screenshot(pagePath);
-    await browser.screenshot(fullPagePath, true);
+    const documentSize = await browser.documentSize();
+    const motionDirectory = join(profileDirectory, 'motion');
+    const motionSamples: MotionSample[] = [];
+    const motionArtifacts: CaptureArtifact[] = [];
+    await mkdir(motionDirectory, { recursive: true });
+    for (const [index, y] of planMotionSamplePositions(documentSize.height, profile.height ?? 900).entries()) {
+      const scrollY = await browser.scrollTo(y);
+      await browser.wait(300);
+      const screenshotPath = join(motionDirectory, `scroll-${String(index).padStart(2, '0')}.png`);
+      await browser.screenshot(screenshotPath);
+      motionSamples.push({
+        index,
+        scrollY,
+        facts: await browser.evalJson<MotionFacts>(BROWSER_INTROSPECTION_SCRIPT),
+      });
+      motionArtifacts.push(await artifactFor(screenshotPath, 'image/png'));
+    }
+    motionArtifacts.push(await writeJson(join(motionDirectory, 'motion.json'), { samples: motionSamples }));
 
+    const pagePath = join(profileDirectory, 'page.png');
+    await browser.scrollTo(0);
+    await browser.wait(150);
+    await browser.screenshot(pagePath);
+
+    const tileDirectory = join(profileDirectory, 'full-page-tiles');
+    const fullPagePaths: string[] = [];
+    await mkdir(tileDirectory, { recursive: true });
+    try {
+      const tiles = [];
+      for (const [index, y] of planVerticalTiles({
+        documentHeight: documentSize.height,
+        viewportHeight: profile.height ?? 900,
+      }).entries()) {
+        const actualY = await browser.scrollTo(y);
+        await browser.wait(150);
+        const path = join(tileDirectory, `${String(index).padStart(4, '0')}.png`);
+        await browser.screenshot(path);
+        tiles.push({ path, y: actualY });
+      }
+      fullPagePaths.push(...await stitchTiles({
+        documentWidth: documentSize.width,
+        documentHeight: documentSize.height,
+        viewportCssWidth: documentSize.viewportWidth,
+        tiles,
+        outputDirectory: profileDirectory,
+      }));
+    } finally {
+      await rm(tileDirectory, { recursive: true, force: true });
+    }
+
+    await browser.scrollTo(0);
     const [snapshot, facts, errors, consoleOutput, network] = await Promise.all([
       browser.snapshot(),
       browser.evalJson<unknown>(BROWSER_INTROSPECTION_SCRIPT),
@@ -109,7 +167,8 @@ async function captureProfile(
 
     return [
       await artifactFor(pagePath, 'image/png'),
-      await artifactFor(fullPagePath, 'image/png'),
+      ...motionArtifacts,
+      ...await Promise.all(fullPagePaths.map((path) => artifactFor(path, 'image/png'))),
       await writeText(join(profileDirectory, 'snapshot.txt'), snapshot),
       await writeJson(join(profileDirectory, 'facts.json'), facts),
       await writeText(join(profileDirectory, 'errors.txt'), errors),
