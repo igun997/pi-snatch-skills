@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import type { PermissionMode } from '../src/contracts.js';
 import { canCapture, createJob, normalizePublicUrl } from '../src/jobs.js';
 import { withTestDir } from './helpers/test-dir.js';
 
@@ -43,6 +44,24 @@ test('creates a consented job beneath the artifact root without page content', a
     const jobJson = await readFile(join(root, '.pi', 'snatch', 'example-job', 'job.json'), 'utf8');
     assert.equal(jobJson.includes('<html'), false);
     assert.equal(jobJson.includes('page body'), false);
+  });
+});
+
+test('rejects invalid permission modes before creating a job directory', async () => {
+  await withTestDir(async (root) => {
+    const jobDirectory = join(root, '.pi', 'snatch', 'invalid-permission-mode');
+
+    await assert.rejects(
+      createJob({
+        root,
+        id: 'invalid-permission-mode',
+        url: 'https://example.com/page',
+        permissionMode: 'unauthorized' as PermissionMode,
+      }),
+      /permission mode/i,
+    );
+
+    await assert.rejects(access(jobDirectory));
   });
 });
 

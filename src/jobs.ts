@@ -46,6 +46,13 @@ export async function createJob(options: CreateJobOptions): Promise<SnatchJob> {
     throw new Error('Job IDs may contain only letters, numbers, hyphens, and underscores.');
   }
 
+  if (
+    options.permissionMode !== 'owned-or-authorized'
+    && options.permissionMode !== 'private-learning'
+  ) {
+    throw new Error('A valid permission mode is required.');
+  }
+
   const rootUrl = normalizePublicUrl(options.url);
   const consentOrigin = new URL(rootUrl).origin;
   const job: SnatchJob = {
