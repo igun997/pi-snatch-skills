@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -26,6 +26,22 @@ test('rejects non-public URL schemes and embedded credentials', () => {
   assert.throws(() => normalizePublicUrl('https://user:secret@example.com/page'));
 });
 
+test('rejects loopback, private, link-local, and reserved public URL hosts', () => {
+  for (const url of [
+    'http://localhost/',
+    'http://preview.localhost/',
+    'http://127.0.0.1/',
+    'http://10.0.0.1/',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://192.168.1.1/',
+    'http://[::1]/',
+    'http://[fe80::1]/',
+    'http://[fc00::1]/',
+  ]) {
+    assert.throws(() => normalizePublicUrl(url), /public host/i);
+  }
+});
+
 test('creates a consented job beneath the artifact root without page content', async () => {
   await withTestDir(async (root) => {
     const job = await createJob({
@@ -42,8 +58,23 @@ test('creates a consented job beneath the artifact root without page content', a
     assert.ok(job.consent.createdAt);
 
     const jobJson = await readFile(join(root, '.pi', 'snatch', 'example-job', 'job.json'), 'utf8');
-    assert.equal(jobJson.includes('<html'), false);
-    assert.equal(jobJson.includes('page body'), false);
+    assert.deepEqual(JSON.parse(jobJson), job);
+  });
+});
+
+test('removes query values from persisted job metadata', async () => {
+  await withTestDir(async (root) => {
+    const job = await createJob({
+      root,
+      id: 'query-job',
+      url: 'https://example.com/page?access_token=secret-value#ignored',
+      permissionMode: 'private-learning',
+    });
+
+    assert.equal(job.rootUrl, 'https://example.com/page');
+    const jobJson = await readFile(join(root, '.pi', 'snatch', 'query-job', 'job.json'), 'utf8');
+    assert.equal(jobJson.includes('access_token'), false);
+    assert.equal(jobJson.includes('secret-value'), false);
   });
 });
 
@@ -62,6 +93,52 @@ test('rejects traversal job IDs without creating paths outside the artifact root
     );
 
     await assert.rejects(access(escapedDirectory));
+  });
+});
+
+test('rejects symlinked artifact roots without writing outside project', async () => {
+  await withTestDir(async (root) => {
+    const outside = join(root, 'outside');
+    const piDirectory = join(root, '.pi');
+    await mkdir(outside);
+    await mkdir(piDirectory);
+    await symlink(outside, join(piDirectory, 'snatch'));
+
+    await assert.rejects(
+      createJob({
+        root,
+        id: 'outside-job',
+        url: 'https://example.com/page',
+        permissionMode: 'private-learning',
+      }),
+      /symlink/i,
+    );
+
+    await assert.rejects(access(join(outside, 'outside-job')));
+  });
+});
+
+test('rejects duplicate job IDs instead of overwriting existing job metadata', async () => {
+  await withTestDir(async (root) => {
+    await createJob({
+      root,
+      id: 'existing-job',
+      url: 'https://example.com/first',
+      permissionMode: 'private-learning',
+    });
+
+    await assert.rejects(
+      createJob({
+        root,
+        id: 'existing-job',
+        url: 'https://example.com/second',
+        permissionMode: 'owned-or-authorized',
+      }),
+      /already exists/i,
+    );
+
+    const jobJson = await readFile(join(root, '.pi', 'snatch', 'existing-job', 'job.json'), 'utf8');
+    assert.equal(jobJson.includes('/second'), false);
   });
 });
 

@@ -134,7 +134,7 @@ Expected: FAIL, missing module exports.
 
 **Step 3: Implement minimal contracts**
 
-Define `PermissionMode = "owned-or-authorized" | "private-learning"`, `CaptureProfile`, `SnatchJob`, `JobStatus`, `CaptureManifest`, and `ValidationReport`. `normalizePublicUrl()` permits only `http:`/`https:`, strips fragment, normalizes hostname/default port, rejects URL credentials. `createJob()` creates `job.json` under `<cwd>/.pi/snatch/<safe-id>/` atomically. Consent stores origin, permission mode, and creation time. `canCapture()` permits only same origin. Never store target page content in `job.json`.
+Define `PermissionMode = "owned-or-authorized" | "private-learning"`, `CaptureProfile`, `SnatchJob`, `JobStatus`, `CaptureManifest`, and `ValidationReport`. `normalizePublicUrl()` permits only public `http:`/`https:` targets, strips fragment, normalizes hostname/default port, rejects URL credentials, loopback/private/link-local/reserved literal hosts, and `.localhost`. `createJob()` creates `job.json` under `<cwd>/.pi/snatch/<safe-id>/` atomically, rejects symlinked artifact path components, and strips query/fragment before storing `rootUrl`. Consent stores origin, permission mode, and creation time. `canCapture()` permits only same origin. Never store target page content or query values in `job.json`.
 
 **Step 4: Run test suite**
 
@@ -162,6 +162,7 @@ Use injected `execFile` fake. Verify runner:
 - invokes executable with argument array, never shell string;
 - uses per-job `--session snatch-<job-id>`;
 - calls `skills get core --full` before capture commands;
+- resolves every capture hostname before opening it and rejects any non-public address; validates final redirected URL against same public-target policy before writing artifacts;
 - serializes a multi-line DOM extraction script through `agent-browser eval --stdin`;
 - throws structured error with redacted command metadata, never stdout containing credential-like values;
 - always sends `close` in `finally` after successful `open`.
@@ -331,7 +332,7 @@ Register:
 
 - `/snatch <url>`: in TUI, select permission mode then confirmation text; create job only on confirmation. In no-UI modes, report that user must invoke command interactively.
 - `/snatch-status [job-id]`: concise job state plus artifact/report paths.
-- `snatch_capture`: requires `jobId`, validates durable consent, invokes capture + analysis, returns compact brief path and structured job state in `details`.
+- `snatch_capture`: requires `jobId` and fresh `targetUrl`, validates durable origin consent and public-target policy without persisting target query values, invokes capture + analysis, returns compact brief path and structured job state in `details`.
 - `snatch_validate`: requires `jobId`, `localUrl`, optional safe scenarios/masks; validates job consent and attempt cap, invokes validation, returns concise failures and artifact paths. It must not auto-fix files.
 
 Use `Type.Object` schemas, `StringEnum` for string enums, `ctx.signal`, output truncation utilities, and tool result `details` for state restoration. `promptGuidelines` must direct agent to load rebuild/motion skills before modifying components and to run no more than three repair attempts. Tool errors throw. `session_shutdown` closes any started browser sessions.
