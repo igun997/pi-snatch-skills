@@ -47,6 +47,24 @@ test('creates a consented job beneath the artifact root without page content', a
   });
 });
 
+test('rejects traversal job IDs without creating paths outside the artifact root', async () => {
+  await withTestDir(async (root) => {
+    const escapedDirectory = join(root, '.pi', 'escape');
+
+    await assert.rejects(
+      createJob({
+        root,
+        id: '../escape',
+        url: 'https://example.com/page',
+        permissionMode: 'private-learning',
+      }),
+      /Job IDs/i,
+    );
+
+    await assert.rejects(access(escapedDirectory));
+  });
+});
+
 test('rejects invalid permission modes before creating a job directory', async () => {
   await withTestDir(async (root) => {
     const jobDirectory = join(root, '.pi', 'snatch', 'invalid-permission-mode');
