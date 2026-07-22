@@ -23,8 +23,15 @@ const className = (tokens: string[], pattern: RegExp): string | null => {
 };
 
 function detectIcon(candidate: IconCandidate): DetectedIcon | null {
-  const tokens = candidate.classTokens.map((token) => token.toLowerCase());
-  const dataLucide = normalizeName(candidate.attributes['data-lucide'] ?? '');
+  const tag = typeof candidate?.tag === 'string' ? candidate.tag.toLowerCase() : '';
+  const tokens = Array.isArray(candidate?.classTokens)
+    ? candidate.classTokens.filter((token): token is string => typeof token === 'string').map((token) => token.toLowerCase())
+    : [];
+  const attributes = candidate?.attributes && typeof candidate.attributes === 'object' && !Array.isArray(candidate.attributes)
+    ? candidate.attributes as Record<string, unknown>
+    : {};
+  const attribute = (name: string) => typeof attributes[name] === 'string' ? attributes[name] : '';
+  const dataLucide = normalizeName(attribute('data-lucide'));
   const lucide = dataLucide ?? className(tokens, /^lucide-(.+)$/);
   if (lucide) return { vendor: 'Lucide', iconName: lucide, confidence: 'high' };
 
@@ -34,12 +41,12 @@ function detectIcon(candidate: IconCandidate): DetectedIcon | null {
   }
 
   if (tokens.some((token) => /^material-symbols(?:-|$)/.test(token))) {
-    const iconName = normalizeName(candidate.attributes.text ?? '');
+    const iconName = normalizeName(attribute('text'));
     if (iconName) return { vendor: 'Material Symbols', iconName, confidence: 'high' };
   }
 
   if (tokens.includes('material-icons')) {
-    const iconName = normalizeName(candidate.attributes.text ?? '');
+    const iconName = normalizeName(attribute('text'));
     if (iconName) return { vendor: 'Material Icons', iconName, confidence: 'high' };
   }
 
@@ -52,7 +59,7 @@ function detectIcon(candidate: IconCandidate): DetectedIcon | null {
   const tabler = className(tokens, /^ti-(.+)$/);
   if (tabler && tokens.includes('ti')) return { vendor: 'Tabler Icons', iconName: tabler, confidence: 'high' };
 
-  return candidate.tag.toLowerCase() === 'svg'
+  return tag === 'svg'
     ? { vendor: 'unknown', iconName: null, confidence: 'low' }
     : null;
 }

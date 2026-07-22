@@ -23,6 +23,14 @@ test('detects supported icon vendors from safe metadata', () => {
   ]);
 });
 
+test('ignores malformed icon metadata without exposing it', () => {
+  const icons = detectIconCandidates([
+    { tag: 'svg', classTokens: null, attributes: null } as never,
+  ]);
+
+  assert.deepEqual(icons, [{ vendor: 'unknown', iconName: null, confidence: 'low' }]);
+});
+
 test('deduplicates icon detections and leaves generic SVGs unknown', () => {
   const icons = detectIconCandidates([
     { tag: 'svg', classTokens: ['lucide-search'], attributes: {} },
