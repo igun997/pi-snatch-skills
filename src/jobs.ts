@@ -7,7 +7,7 @@ import type { PermissionMode, SnatchJob } from './contracts.js';
 
 const SAFE_JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
-function hasPublicHost(hostname: string): boolean {
+export function isPublicHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost')) return false;
 
@@ -106,7 +106,7 @@ export function normalizePublicUrl(value: string): string {
     throw new Error('URLs with embedded credentials are not permitted.');
   }
 
-  if (!hasPublicHost(url.hostname)) {
+  if (!isPublicHost(url.hostname)) {
     throw new Error('Only public hosts are permitted.');
   }
 
