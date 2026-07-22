@@ -16,3 +16,12 @@ Install dependencies with `npm install`, then verify the package with:
 npm test
 npm run typecheck
 ```
+
+## Workflow
+
+1. Run `/snatch <public-url>` and provide required interactive consent.
+2. Use capture evidence to create new components with `rebuild-components`; never copy source code or assets.
+3. Validate only explicit loopback URLs. Review pixel/vision evidence; repair generated files at most three times.
+4. Remove `.pi/snatch/<job-id>/` when evidence is no longer needed.
+
+See [agent-browser setup](docs/agent-browser.md).
