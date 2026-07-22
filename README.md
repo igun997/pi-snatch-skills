@@ -10,27 +10,72 @@ A Pi package for authorized website-design analysis only. Use it only on website
 
 ## Install
 
-Install dependencies with `npm install`, then verify the package with:
+### Install in Pi
+
+Install globally for current user:
 
 ```sh
+pi install git:github.com/igun997/pi-snatch-skills@master
+```
+
+Install only for current project:
+
+```sh
+pi install -l git:github.com/igun997/pi-snatch-skills@master
+```
+
+Verify package is registered, then restart Pi if it is already open:
+
+```sh
+pi list
+```
+
+Pi loads extension from `extensions/` and skills from `skills/` automatically. Use `pi config` to enable or disable individual resources.
+
+### Develop locally
+
+Install dependencies, then verify package:
+
+```sh
+npm install
 npm test
 npm run typecheck
 ```
 
 ## Workflow
 
-1. Run `/snatch <public-url>` and provide required interactive consent.
-2. Use capture evidence to create new components with `rebuild-components`; never copy source code or assets.
-3. Validate only explicit loopback URLs. Review pixel/vision evidence; repair generated files at most three times.
-4. Remove `.pi/snatch/<job-id>/` when evidence is no longer needed.
+1. In Pi TUI, run `/snatch <public-url>`.
+2. Choose `owned-or-authorized`, then confirm consent. Pi records a job under `.pi/snatch/<job-id>/job.json`.
+3. Run `/snatch-status <job-id>` to inspect job state.
+4. Ask Pi to capture job `<job-id>`. `snatch_capture` records desktop/mobile evidence and writes `.pi/snatch/<job-id>/output/brief.json`.
+5. Use screenshots and brief to create new components. Never copy target source code, assets, fonts, SVG markup, or page copy.
+6. Serve rebuilt output locally, then validate only a loopback URL:
 
-See [agent-browser setup](docs/agent-browser.md).
+```sh
+node --import tsx scripts/e2e.mjs \
+  --job <job-id> \
+  --local-url http://127.0.0.1:4173
+```
+
+Validation captures desktop, mobile, and reduced-motion profiles. Review visual evidence; repair at most three times.
+
+7. Remove evidence when done:
+
+```sh
+rm -rf .pi/snatch/<job-id>
+```
+
+## Icon vendor detection
+
+`brief.json` includes sorted, deduplicated `icons` records with `vendor`, `iconName`, and confidence. Supports Font Awesome, Material, Lucide, Heroicons, Bootstrap Icons, and Tabler. Generic SVGs remain `unknown` with low confidence.
+
+See [agent-browser setup](docs/agent-browser.md) and [icon vendor detection](docs/icon-vendor-detection.md).
 
 ## Acceptance evidence
 
 Checked 2026-07-22 with Node `v22.20.0`, Pi `0.81.1`, and agent-browser `0.27.0`.
 
-- `npm test`: 51 passing, 0 failing.
+- `npm test`: 57 passing, 0 failing.
 - `npm run typecheck`: passed.
 - Authorized unauthenticated public capture: passed; persisted metadata checked for no query, fragment, credentials, page source, cookies, storage, or asset fields.
 - Fixture integration: passed for desktop, mobile, reduced-motion, and forced visual-diff failure.
