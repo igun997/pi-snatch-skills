@@ -22,6 +22,31 @@ export const BROWSER_INTROSPECTION_SCRIPT = `(() => {
         styles: Object.fromEntries(styleProperties.map((property) => [property, style[property]])),
       };
     });
+  const safeIconName = (value) => {
+    const normalized = value.trim().toLowerCase().replace(/[_\\s]+/g, '-');
+    return /^[a-z0-9-]{1,80}$/.test(normalized) ? normalized : null;
+  };
+  const iconClass = (value) => /^(?:fa-(?:solid|regular|brands|light|thin|duotone|[a-z0-9-]+)|lucide(?:-[a-z0-9-]+)?|material-(?:icons|symbols(?:-[a-z0-9-]+)?)|heroicon-(?:outline|solid|mini|micro)-[a-z0-9-]+|bi(?:-[a-z0-9-]+)?|ti(?:-[a-z0-9-]+)?)$/.test(value);
+  const iconCandidates = Array.from(document.querySelectorAll('i, svg, [data-lucide], .material-icons, [class*="fa-"], [class*="lucide"], [class*="heroicon"], [class*="bi-"], [class*="ti-"]'))
+    .filter(visible)
+    .slice(0, 200)
+    .map((element) => {
+      const dataLucide = safeIconName(element.getAttribute('data-lucide') ?? '');
+      const dataIcon = safeIconName(element.getAttribute('data-icon') ?? '');
+      const text = element.matches('.material-icons, [class*="material-symbols"]')
+        ? safeIconName(element.textContent ?? '')
+        : null;
+      return {
+        tag: element.tagName.toLowerCase(),
+        classTokens: Array.from(element.classList).filter(iconClass).slice(0, 8),
+        attributes: Object.fromEntries([
+          ...(dataLucide ? [['data-lucide', dataLucide]] : []),
+          ...(dataIcon ? [['data-icon', dataIcon]] : []),
+          ...(text ? [['text', text]] : []),
+        ]),
+      };
+    })
+    .filter((candidate) => candidate.classTokens.length > 0 || Object.keys(candidate.attributes).length > 0 || candidate.tag === 'svg');
   const animations = document.getAnimations().slice(0, 200).map((animation) => {
     const timing = animation.effect?.getTiming();
     const target = animation.effect?.target;
@@ -40,6 +65,7 @@ export const BROWSER_INTROSPECTION_SCRIPT = `(() => {
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
     regions: elements,
     animations,
+    icons: iconCandidates,
     media: { reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches },
   });
 })()`;
