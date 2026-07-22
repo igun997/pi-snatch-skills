@@ -14,6 +14,11 @@ import { loadJob, normalizePublicUrl, canCapture, updateJobStatus } from '../src
 import { nextRepairAttempt, validateJob } from '../src/validate.js';
 
 const permissionModes = ['owned-or-authorized', 'private-learning'] as const;
+
+export function buildRebuildContinuation(briefPath: string): string {
+  return `Capture complete. Read ${briefPath} and source screenshots before writing code. Inspect PRODUCT.md and DESIGN.md. First derive intended hierarchy, typography scale, layout density, spacing, responsive behavior, and motion from evidence. Build a fresh reusable implementation that matches visual weight and purpose, never generic tiny defaults. Run local desktop and mobile screenshots, perform visual QA for scale, hierarchy, spacing, contrast, and interaction, then iterate before reporting files changed and validation evidence. Never copy target source code or assets.`;
+}
+
 const stateDetails = (jobId: string, origin: string, attempts: number, status: string) => ({ jobId, origin, attempts, status });
 
 export default function snatchDesignExtension(pi: ExtensionAPI) {
@@ -72,7 +77,7 @@ export default function snatchDesignExtension(pi: ExtensionAPI) {
         pi.appendEntry('snatch-progress', { stage: 'Brief ready', message: briefPath });
         pi.appendEntry('snatch-progress', { stage: 'LLM continuation', message: 'Queued fresh rebuild workflow' });
         ctx.ui.notify(`Capture complete. Brief: ${briefPath}`, 'info');
-        pi.sendUserMessage(`Capture complete. Read ${briefPath}. Inspect project, then proactively build a fresh reusable rebuild from design evidence. Never copy source code or assets. Report files changed and validation results.`);
+        pi.sendUserMessage(buildRebuildContinuation(briefPath));
       } catch (error) {
         await updateJobStatus(ctx.cwd, job.id, 'failed');
         ctx.ui.notify((error as Error).message, 'error');

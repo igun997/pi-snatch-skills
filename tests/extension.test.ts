@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import snatchDesignExtension from '../extensions/snatch-design.js';
+import snatchDesignExtension, { buildRebuildContinuation } from '../extensions/snatch-design.js';
 import { withTestDir } from './helpers/test-dir.js';
 
 test('registers consent command, status command, capture, validation, and full-clone tools', () => {
@@ -21,6 +21,15 @@ test('registers consent command, status command, capture, validation, and full-c
   assert.deepEqual(commands, ['snatch', 'snatch-status', 'snatch-full-clone']);
   assert.deepEqual(tools, ['snatch_status', 'snatch_capture', 'snatch_full_clone', 'snatch_validate']);
   assert.deepEqual(renderers, ['snatch-progress']);
+});
+
+test('build continuation requires screenshot-led visual design QA', () => {
+  const prompt = buildRebuildContinuation('.pi/snatch/job/output/brief.json');
+  assert.match(prompt, /screenshots/i);
+  assert.match(prompt, /PRODUCT\.md/);
+  assert.match(prompt, /DESIGN\.md/);
+  assert.match(prompt, /desktop.*mobile/i);
+  assert.match(prompt, /visual QA/i);
 });
 
 test('/snatch asks what to do after recording consent', async () => {
