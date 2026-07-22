@@ -26,3 +26,11 @@ test('keeps the lockfile root package name in sync', async () => {
 
   assert.equal(lockfile.packages?.[''].name, pkg.name);
 });
+
+test('uses the deterministic Node test launcher', async () => {
+  const pkg = JSON.parse(await readFile(packageJsonUrl, 'utf8')) as {
+    scripts?: { test?: string };
+  };
+
+  assert.equal(pkg.scripts?.test, 'node scripts/run-tests.mjs');
+});
